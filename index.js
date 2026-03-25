@@ -2,7 +2,8 @@ require('dotenv').config();
 const { createBot } = require('./src/bot/bot');
 const { createServer } = require('./src/webapp/server');
 const { startReminderCron } = require('./src/cron/reminders');
-const { setupAiAssistant } = require('./src/bot/ai-assistant');
+const { setupConversationalAI } = require('./src/bot/ai-assistant');
+const { setupVoiceHandler } = require('./src/bot/voice');
 const db = require('./src/db/database');
 
 const BOT_TOKEN = process.env.BOT_TOKEN;
@@ -26,8 +27,11 @@ async function main() {
   // Создаём бота
   const bot = createBot(BOT_TOKEN, WEBAPP_URL);
 
-  // Подключаем AI-помощника
-  setupAiAssistant(bot, GROQ_KEY);
+  // Подключаем распознавание голосовых (ДО текстового AI!)
+  setupVoiceHandler(bot, GROQ_KEY);
+
+  // Подключаем conversational AI (обрабатывает ВСЕ текстовые сообщения)
+  setupConversationalAI(bot, GROQ_KEY);
 
   // Запускаем крон напоминаний
   startReminderCron(bot);
@@ -47,11 +51,12 @@ async function main() {
       if (ADMIN_ID) {
         try {
           await bot.api.sendMessage(ADMIN_ID,
-            `✅ <b>Alpha Planner подключён!</b>\n\n` +
+            `✅ <b>Alpha Planner v2.0 подключён!</b>\n\n` +
             `🤖 Бот: @${botInfo.username}\n` +
             `🌐 Сервер: порт ${PORT}\n` +
             `📅 Напоминания: активны\n` +
-            `🤖 AI: ${GROQ_KEY ? 'включён (Groq)' : 'выключен (нет GROQ_KEY)'}\n` +
+            `🧠 AI-секретарь: ${GROQ_KEY ? '✅ Groq' : '❌ нет ключа'}\n` +
+            `🎤 Голос: ${GROQ_KEY ? '✅ Whisper' : '❌ нет ключа'}\n` +
             `⏰ ${new Date().toLocaleString('ru-RU', { timeZone: 'Europe/Moscow' })}`,
             { parse_mode: 'HTML' }
           );

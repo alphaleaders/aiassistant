@@ -1,492 +1,485 @@
 const { Bot, InlineKeyboard, session } = require('grammy');
 const db = require('../db/database');
 const { PRIORITIES, parseDate, parseTime, formatTask, todayStr, tomorrowStr, errorResponse, escapeHtml, localToUtc, formatDateRu } = require('../utils/helpers');
-const { createReminder } = require('../db/database');
+
+const SECRETARY_STYLES = {
+  friendly: { name: '😊 Дружелюбный', desc: 'Тёплый, поддерживающий, с юмором' },
+  business: { name: '💼 Деловой', desc: 'Чёткий, профессиональный, по делу' },
+  coach:    { name: '🔥 Коуч-мотиватор', desc: 'Энергичный, мотивирующий, толкает вперёд' },
+  gentle:   { name: '🌸 Мягкий', desc: 'Спокойный, заботливый, без давления' },
+};
 
 function createBot(token, webappUrl) {
   const bot = new Bot(token);
 
-  // Сессия для хранения состояния диалога
   bot.use(session({
     initial: () => ({ step: null, data: {} }),
   }));
 
-  // ============ /start ============
+  // ============ /start — ONBOARDING ============
   bot.command('start', async (ctx) => {
     const user = db.ensureUser(ctx.from);
-    const kb = new InlineKeyboard()
-      .text('📋 Задачи на сегодня', 'today')
-      .text('➕ Новая задача', 'new_task').row()
-      .text('📊 Привычки', 'habits')
-      .text('⚙️ Настройки', 'settings').row();
 
-    if (webappUrl) {
-      kb.webApp('📱 Открыть планировщик', webappUrl);
+    if (user.onboarded && user.secretary_name) {
+      // Уже настроен — приветствие от секретаря
+      const name = user.secretary_name;
+      const kb = new InlineKeyboard()
+        .text('📋 Мои задачи', 'today')
+        .text('📊 Привычки', 'habits').row()
+        .text('⚙️ Настройки', 'settings');
+      if (webappUrl) kb.row().webApp('📱 Открыть планировщик', webappUrl);
+
+      return ctx.reply(
+        `👋 С возвращением, <b>${escapeHtml(ctx.from.first_name)}</b>!\n\n` +
+        `Я ${escapeHtml(name)}, твой персональный секретарь.\n` +
+        `Просто напиши или отправь голосовое — я всё запишу и напомню.\n\n` +
+        `💡 Попробуй: <i>"завтра в 14:00 встреча с клиентом"</i>`,
+        { parse_mode: 'HTML', reply_markup: kb }
+      );
+    }
+
+    // === ONBOARDING: Шаг 1 — Приветствие ===
+    ctx.session.step = 'onboard_name';
+    await ctx.reply(
+      `👋 Привет, <b>${escapeHtml(ctx.from.first_name)}</b>!\n\n` +
+      `Я твой AI-секретарь и планировщик.\n` +
+      `Я буду управлять твоими делами, напоминать о задачах и помогать планировать день.\n\n` +
+      `🎭 Для начала — <b>как ты хочешь меня называть?</b>\n\n` +
+      `Выбери готовое имя или напиши своё:`,
+      {
+        parse_mode: 'HTML',
+        reply_markup: new InlineKeyboard()
+          .text('👩‍💼 Алиса', 'name_Алиса')
+          .text('👨‍💼 Макс', 'name_Макс')
+          .text('🤖 Джарвис', 'name_Джарвис').row()
+          .text('👩‍💻 Ева', 'name_Ева')
+          .text('👨‍💻 Сэм', 'name_Сэм')
+          .text('🦊 Фокси', 'name_Фокси').row()
+          .text('👩‍🔬 Донна', 'name_Донна')
+          .text('🧠 Нео', 'name_Нео')
+          .text('✍️ Своё имя...', 'name_custom'),
+      }
+    );
+  });
+
+  // Выбор имени — кнопка
+  bot.callbackQuery(/^name_(.+)$/, async (ctx) => {
+    await ctx.answerCallbackQuery();
+    const name = ctx.match[1];
+
+    if (name === 'custom') {
+      ctx.session.step = 'onboard_name_input';
+      return ctx.reply('✍️ Напиши имя для своего секретаря:');
+    }
+
+    const user = db.ensureUser(ctx.from);
+    db.setSecretaryName(user.id, name);
+    ctx.session.data.secretaryName = name;
+    await showStyleSelection(ctx, name);
+  });
+
+  // Выбор стиля
+  async function showStyleSelection(ctx, name) {
+    ctx.session.step = 'onboard_style';
+    const kb = new InlineKeyboard();
+    for (const [key, style] of Object.entries(SECRETARY_STYLES)) {
+      kb.text(style.name, `style_${key}`).row();
     }
 
     await ctx.reply(
-      `👋 Привет, <b>${escapeHtml(ctx.from.first_name)}</b>!\n\n` +
-      `Я твой персональный планировщик дел.\n\n` +
-      `🔹 Просто напиши задачу — я добавлю её на сегодня\n` +
-      `🔹 Напиши "завтра купить молоко" — добавлю на завтра\n` +
-      `🔹 Используй /help для списка команд\n\n` +
-      `✅ Бот подключён и работает!`,
+      `✨ Отлично! Меня зовут <b>${escapeHtml(name)}</b>.\n\n` +
+      `Теперь выбери мой стиль общения:`,
       { parse_mode: 'HTML', reply_markup: kb }
+    );
+  }
+
+  // Стиль выбран
+  bot.callbackQuery(/^style_(.+)$/, async (ctx) => {
+    await ctx.answerCallbackQuery();
+    const style = ctx.match[1];
+    const user = db.ensureUser(ctx.from);
+    db.setSecretaryStyle(user.id, style);
+
+    ctx.session.step = 'onboard_about';
+    await ctx.reply(
+      `👍 Стиль: <b>${SECRETARY_STYLES[style]?.name || style}</b>\n\n` +
+      `Последний шаг — расскажи немного о себе, чтобы я лучше помогал:\n\n` +
+      `<i>Например: "Я предприниматель, работаю с 9 до 18, важны звонки клиентам и спорт по вечерам"</i>\n\n` +
+      `Или нажми кнопку чтобы пропустить:`,
+      {
+        parse_mode: 'HTML',
+        reply_markup: new InlineKeyboard().text('⏭ Пропустить', 'skip_about'),
+      }
+    );
+  });
+
+  bot.callbackQuery('skip_about', async (ctx) => {
+    await ctx.answerCallbackQuery();
+    const user = db.ensureUser(ctx.from);
+    await finishOnboarding(ctx, user);
+  });
+
+  // Завершение onboarding
+  async function finishOnboarding(ctx, user) {
+    db.setOnboarded(user.id);
+    const updatedUser = db.getUserByTgId(user.tg_id);
+    const name = updatedUser.secretary_name || 'Секретарь';
+    const styleName = SECRETARY_STYLES[updatedUser.secretary_style]?.name || '';
+
+    ctx.session.step = null;
+    ctx.session.data = {};
+
+    // Первое сообщение от секретаря
+    const kb = new InlineKeyboard()
+      .text('📋 Мои задачи', 'today')
+      .text('💡 Что ты умеешь?', 'what_can_do').row();
+    if (webappUrl) kb.webApp('📱 Открыть планировщик', webappUrl);
+
+    await ctx.reply(
+      `🎉 <b>Настройка завершена!</b>\n\n` +
+      `Привет! Я <b>${escapeHtml(name)}</b> ${styleName}\n` +
+      `Твой персональный AI-секретарь.\n\n` +
+      `📝 <b>Просто пиши мне или отправляй голосовые:</b>\n\n` +
+      `• <i>"Завтра встреча в 10:00"</i> — создам задачу\n` +
+      `• <i>"Что у меня на сегодня?"</i> — покажу план\n` +
+      `• <i>"Перенеси встречу на пятницу"</i> — перенесу\n` +
+      `• <i>"Спланируй мне день"</i> — составлю план\n` +
+      `• <i>"Напомни через час позвонить"</i> — напомню\n\n` +
+      `🎤 Голосовые тоже понимаю — просто наговори!\n\n` +
+      `Готов к работе! Что делаем? 💪`,
+      { parse_mode: 'HTML', reply_markup: kb }
+    );
+  }
+
+  // ============ "Что ты умеешь?" ============
+  bot.callbackQuery('what_can_do', async (ctx) => {
+    await ctx.answerCallbackQuery();
+    const user = db.ensureUser(ctx.from);
+    const name = user.secretary_name || 'Секретарь';
+
+    await ctx.reply(
+      `🧠 <b>${escapeHtml(name)} умеет:</b>\n\n` +
+      `📝 <b>Задачи</b>\n` +
+      `• Создавать из текста и голоса\n` +
+      `• Ставить дату, время, приоритет\n` +
+      `• Переносить, завершать, удалять\n` +
+      `• Разбивать большие задачи на шаги\n\n` +
+      `⏰ <b>Напоминания</b>\n` +
+      `• Автоматические перед задачей\n` +
+      `• "Напомни через 2 часа"\n` +
+      `• Утренний план дня\n` +
+      `• Вечерний итог\n\n` +
+      `📊 <b>Привычки</b>\n` +
+      `• Трекер привычек со стриками\n\n` +
+      `🧠 <b>AI-помощь</b>\n` +
+      `• Планирование дня\n` +
+      `• Советы по продуктивности\n` +
+      `• Ответы на вопросы\n\n` +
+      `🎤 <b>Голос</b>\n` +
+      `• Распознаю голосовые сообщения\n` +
+      `• Извлекаю задачи автоматически\n\n` +
+      `💬 Просто общайся со мной как с настоящим секретарём!`,
+      { parse_mode: 'HTML' }
     );
   });
 
   // ============ /help ============
   bot.command('help', async (ctx) => {
+    const user = db.ensureUser(ctx.from);
+    const name = user.secretary_name || 'Секретарь';
     await ctx.reply(
-      `📖 <b>Команды бота:</b>\n\n` +
-      `📋 <b>Задачи:</b>\n` +
-      `/today — задачи на сегодня\n` +
-      `/tomorrow — задачи на завтра\n` +
-      `/week — задачи на неделю\n` +
-      `/all — все активные задачи\n` +
-      `/done — завершённые задачи\n` +
-      `/overdue — просроченные задачи\n\n` +
-      `➕ <b>Создание:</b>\n` +
-      `/add [текст] — добавить задачу\n` +
-      `Или просто напиши текст — задача создастся!\n\n` +
-      `📊 <b>Привычки:</b>\n` +
-      `/habits — мои привычки\n` +
-      `/addhabit [текст] — новая привычка\n\n` +
-      `📁 <b>Категории:</b>\n` +
-      `/categories — мои категории\n\n` +
-      `⚙️ <b>Настройки:</b>\n` +
-      `/settings — настройки бота\n` +
-      `/timezone [зона] — сменить часовой пояс\n\n` +
-      `💡 <b>Подсказки:</b>\n` +
-      `• "завтра сходить в магазин" → задача на завтра\n` +
-      `• "25.03 встреча в 14:00" → дата + время\n` +
-      `• Приоритет: !1 (срочно), !2 (высокий), !3 (средний), !4 (низкий)`,
+      `📖 <b>Команды ${escapeHtml(name)}:</b>\n\n` +
+      `📋 /today — задачи на сегодня\n` +
+      `📅 /tomorrow — задачи на завтра\n` +
+      `📆 /week — задачи на неделю\n` +
+      `📝 /all — все активные задачи\n` +
+      `✅ /done — завершённые\n` +
+      `⚠️ /overdue — просроченные\n\n` +
+      `📊 /habits — привычки\n` +
+      `📁 /categories — категории\n` +
+      `⚙️ /settings — настройки\n` +
+      `🎭 /rename — сменить имя секретаря\n` +
+      `🔄 /style — сменить стиль общения\n\n` +
+      `💡 Но лучше просто пиши мне текстом или голосом!`,
       { parse_mode: 'HTML' }
     );
   });
 
-  // ============ /today ============
-  bot.command('today', async (ctx) => {
+  // ============ /rename ============
+  bot.command('rename', async (ctx) => {
+    ctx.session.step = 'rename_secretary';
+    await ctx.reply('✍️ Напиши новое имя для секретаря:');
+  });
+
+  // ============ /style ============
+  bot.command('style', async (ctx) => {
+    const kb = new InlineKeyboard();
+    for (const [key, style] of Object.entries(SECRETARY_STYLES)) {
+      kb.text(style.name, `style_${key}`).row();
+    }
+    await ctx.reply('🎭 Выбери новый стиль:', { reply_markup: kb });
+  });
+
+  // ============ /today, /tomorrow, /week, /all, /done, /overdue ============
+  bot.command('today', async (ctx) => { await showTasks(ctx, 'today'); });
+  bot.command('tomorrow', async (ctx) => { await showTasks(ctx, 'tomorrow'); });
+  bot.command('week', async (ctx) => { await showWeek(ctx); });
+  bot.command('all', async (ctx) => { await showTasks(ctx, 'all'); });
+  bot.command('done', async (ctx) => { await showTasks(ctx, 'done'); });
+  bot.command('overdue', async (ctx) => { await showTasks(ctx, 'overdue'); });
+
+  async function showTasks(ctx, mode) {
     const user = db.ensureUser(ctx.from);
     const today = todayStr(user.timezone);
-    const tasks = db.getTasksByDate(user.id, today);
-    const overdue = db.getOverdueTasks(user.id, today);
-
-    let text = `📅 <b>Сегодня (${formatDateRu(today)}):</b>\n\n`;
-
-    if (overdue.length > 0) {
-      text += `⚠️ <b>Просроченные:</b>\n`;
-      overdue.forEach(t => { text += formatTask(t, true) + ` <i>[#${t.id}]</i>\n`; });
-      text += '\n';
-    }
-
-    if (tasks.length === 0) {
-      text += `Нет задач на сегодня 🎉\nНапиши задачу или нажми ➕`;
-    } else {
-      tasks.forEach(t => { text += formatTask(t) + ` <i>[#${t.id}]</i>\n`; });
-      const done = tasks.filter(t => t.status === 'done').length;
-      text += `\n📊 Выполнено: ${done}/${tasks.length}`;
-    }
-
-    const kb = new InlineKeyboard()
-      .text('➕ Добавить', 'new_task_today')
-      .text('📅 Завтра', 'show_tomorrow');
-
-    await ctx.reply(text, { parse_mode: 'HTML', reply_markup: kb });
-  });
-
-  // ============ /tomorrow ============
-  bot.command('tomorrow', async (ctx) => {
-    const user = db.ensureUser(ctx.from);
     const tmr = tomorrowStr(user.timezone);
-    const tasks = db.getTasksByDate(user.id, tmr);
+    let tasks, title;
 
-    let text = `📅 <b>Завтра (${formatDateRu(tmr)}):</b>\n\n`;
-    if (tasks.length === 0) {
-      text += 'Нет задач на завтра';
-    } else {
-      tasks.forEach(t => { text += formatTask(t) + ` <i>[#${t.id}]</i>\n`; });
+    switch (mode) {
+      case 'today':
+        tasks = db.getTasksByDate(user.id, today);
+        title = `📅 Сегодня (${formatDateRu(today)})`;
+        break;
+      case 'tomorrow':
+        tasks = db.getTasksByDate(user.id, tmr);
+        title = `📅 Завтра (${formatDateRu(tmr)})`;
+        break;
+      case 'all':
+        tasks = db.getAllActiveTasks(user.id);
+        title = '📋 Все активные задачи';
+        break;
+      case 'done':
+        tasks = db.getTasksByStatus(user.id, 'done').slice(0, 20);
+        title = '✅ Завершённые';
+        break;
+      case 'overdue':
+        tasks = db.getOverdueTasks(user.id, today);
+        title = '⚠️ Просроченные';
+        break;
     }
 
-    const kb = new InlineKeyboard().text('➕ Добавить на завтра', 'new_task_tomorrow');
-    await ctx.reply(text, { parse_mode: 'HTML', reply_markup: kb });
-  });
+    let text = `<b>${title}:</b>\n\n`;
+    if (tasks.length === 0) {
+      text += mode === 'overdue' ? 'Нет просроченных! 🎉' : 'Список пуст ✨';
+    } else {
+      tasks.forEach(t => { text += formatTask(t, mode === 'all' || mode === 'overdue') + ` <i>[#${t.id}]</i>\n`; });
+      if (mode === 'today') {
+        const done = tasks.filter(t => t.status === 'done').length;
+        text += `\n📊 ${done}/${tasks.length} выполнено`;
+      }
+    }
 
-  // ============ /week ============
-  bot.command('week', async (ctx) => {
+    // Overdue — кнопки для каждой задачи
+    if (mode === 'overdue' && tasks.length > 0) {
+      const kb = new InlineKeyboard()
+        .text('📅 Всё на сегодня', `move_all_today`)
+        .text('📅 Всё на завтра', `move_all_tmr_overdue`);
+      return ctx.reply(text, { parse_mode: 'HTML', reply_markup: kb });
+    }
+
+    const kb = new InlineKeyboard();
+    if (mode === 'today') kb.text('➕ Добавить', 'new_task_today').text('📅 Завтра', 'show_tomorrow');
+    else if (mode === 'tomorrow') kb.text('➕ Добавить', 'new_task_tomorrow');
+    await ctx.reply(text, { parse_mode: 'HTML', reply_markup: kb.inline_keyboard.length ? kb : undefined });
+  }
+
+  async function showWeek(ctx) {
     const user = db.ensureUser(ctx.from);
     const { DateTime } = require('luxon');
     const now = DateTime.now().setZone(user.timezone);
+    let text = `📆 <b>Неделя:</b>\n\n`;
+    let hasAny = false;
 
-    let text = `📅 <b>Неделя:</b>\n\n`;
     for (let i = 0; i < 7; i++) {
       const day = now.plus({ days: i });
       const dateStr = day.toFormat('yyyy-MM-dd');
       const tasks = db.getTasksByDate(user.id, dateStr);
-      const dayNames = ['Пн', 'Вт', 'Ср', 'Чт', 'Пт', 'Сб', 'Вс'];
-      const dayName = dayNames[day.weekday - 1];
-      const isToday = i === 0 ? ' (сегодня)' : '';
-
       if (tasks.length > 0) {
-        text += `<b>${dayName} ${formatDateRu(dateStr)}${isToday}:</b>\n`;
+        hasAny = true;
+        const dayNames = ['Пн', 'Вт', 'Ср', 'Чт', 'Пт', 'Сб', 'Вс'];
+        const isToday = i === 0 ? ' <b>(сегодня)</b>' : '';
+        text += `<b>${dayNames[day.weekday - 1]} ${formatDateRu(dateStr)}</b>${isToday}:\n`;
         tasks.forEach(t => { text += `  ${formatTask(t)} <i>[#${t.id}]</i>\n`; });
         text += '\n';
       }
     }
-
-    if (text === `📅 <b>Неделя:</b>\n\n`) {
-      text += 'На этой неделе пока нет задач 🎉';
-    }
-
+    if (!hasAny) text += 'На этой неделе пусто 🎉';
     await ctx.reply(text, { parse_mode: 'HTML' });
-  });
+  }
 
-  // ============ /all ============
-  bot.command('all', async (ctx) => {
-    const user = db.ensureUser(ctx.from);
-    const tasks = db.getAllActiveTasks(user.id);
-
-    let text = `📋 <b>Все активные задачи (${tasks.length}):</b>\n\n`;
-    if (tasks.length === 0) {
-      text += 'Нет активных задач!';
-    } else {
-      tasks.forEach(t => { text += formatTask(t, true) + ` <i>[#${t.id}]</i>\n`; });
-    }
-
-    await ctx.reply(text, { parse_mode: 'HTML' });
-  });
-
-  // ============ /done ============
-  bot.command('done', async (ctx) => {
-    const user = db.ensureUser(ctx.from);
-    const tasks = db.getTasksByStatus(user.id, 'done');
-    const recent = tasks.slice(0, 20);
-
-    let text = `✅ <b>Завершённые задачи (${tasks.length}):</b>\n\n`;
-    if (recent.length === 0) {
-      text += 'Пока нет завершённых задач';
-    } else {
-      recent.forEach(t => { text += formatTask(t, true) + ` <i>[#${t.id}]</i>\n`; });
-      if (tasks.length > 20) text += `\n... и ещё ${tasks.length - 20}`;
-    }
-
-    await ctx.reply(text, { parse_mode: 'HTML' });
-  });
-
-  // ============ /overdue ============
-  bot.command('overdue', async (ctx) => {
-    const user = db.ensureUser(ctx.from);
-    const today = todayStr(user.timezone);
-    const tasks = db.getOverdueTasks(user.id, today);
-
-    let text = `⚠️ <b>Просроченные задачи (${tasks.length}):</b>\n\n`;
-    if (tasks.length === 0) {
-      text += 'Нет просроченных задач 🎉';
-    } else {
-      tasks.forEach(t => {
-        text += formatTask(t, true) + ` <i>[#${t.id}]</i>\n`;
-        const kb = new InlineKeyboard()
-          .text('✅ Готово', `done_${t.id}`)
-          .text('📅 На сегодня', `move_today_${t.id}`)
-          .text('📅 На завтра', `move_tmr_${t.id}`);
-      });
-    }
-
-    await ctx.reply(text, { parse_mode: 'HTML' });
-  });
-
-  // ============ /add [текст] ============
-  bot.command('add', async (ctx) => {
-    const user = db.ensureUser(ctx.from);
-    const text = ctx.match?.trim();
-    if (!text) {
-      ctx.session.step = 'awaiting_task_title';
-      ctx.session.data = {};
-      return ctx.reply('✏️ Напиши название задачи:');
-    }
-    await quickCreateTask(ctx, user, text);
-  });
-
-  // ============ /addhabit ============
-  bot.command('addhabit', async (ctx) => {
-    const user = db.ensureUser(ctx.from);
-    const text = ctx.match?.trim();
-    if (!text) {
-      return ctx.reply('✏️ Используй: /addhabit Название привычки');
-    }
-    const habit = db.createHabit(user.id, text);
-    await ctx.reply(`✅ Привычка добавлена: <b>${escapeHtml(habit.title)}</b> ${habit.emoji}\nОтмечай выполнение в /habits`, { parse_mode: 'HTML' });
-  });
-
-  // ============ /habits ============
+  // ============ Habits ============
   bot.command('habits', async (ctx) => {
     const user = db.ensureUser(ctx.from);
     const habits = db.getUserHabits(user.id);
+    if (habits.length === 0) return ctx.reply('У тебя пока нет привычек.\nНапиши: <i>"Добавь привычку: зарядка"</i>', { parse_mode: 'HTML' });
 
-    if (habits.length === 0) {
-      return ctx.reply('У тебя пока нет привычек.\nДобавь: /addhabit Зарядка');
-    }
-
-    let text = `📊 <b>Мои привычки:</b>\n\n`;
+    let text = `📊 <b>Привычки:</b>\n\n`;
     const kb = new InlineKeyboard();
     habits.forEach((h, i) => {
       text += `${h.emoji} <b>${escapeHtml(h.title)}</b> — 🔥 ${h.current_streak} дн. (рекорд: ${h.best_streak})\n`;
-      kb.text(`${h.emoji} Отметить`, `habit_done_${h.id}`);
-      if (i % 2 === 1) kb.row();
+      kb.text(`${h.emoji} ✓`, `habit_done_${h.id}`);
+      if (i % 3 === 2) kb.row();
     });
-
     await ctx.reply(text, { parse_mode: 'HTML', reply_markup: kb });
   });
 
-  // ============ /categories ============
   bot.command('categories', async (ctx) => {
     const user = db.ensureUser(ctx.from);
     const cats = db.getCategories(user.id);
-
     let text = `📁 <b>Категории:</b>\n\n`;
     cats.forEach(c => { text += `${c.emoji} ${c.name}\n`; });
-    text += '\nДобавить: /addcat Название Эмодзи';
-
     await ctx.reply(text, { parse_mode: 'HTML' });
-  });
-
-  // ============ /addcat ============
-  bot.command('addcat', async (ctx) => {
-    const user = db.ensureUser(ctx.from);
-    const parts = ctx.match?.trim().split(' ');
-    if (!parts || parts.length === 0 || !parts[0]) {
-      return ctx.reply('Используй: /addcat Название 📌');
-    }
-    const emoji = parts.length > 1 && /\p{Emoji}/u.test(parts[parts.length - 1]) ? parts.pop() : '📋';
-    const name = parts.join(' ');
-    try {
-      db.createCategory(user.id, name, emoji);
-      await ctx.reply(`✅ Категория добавлена: ${emoji} ${name}`);
-    } catch (e) {
-      await ctx.reply('❌ Такая категория уже существует');
-    }
   });
 
   // ============ /settings ============
   bot.command('settings', async (ctx) => {
     const user = db.ensureUser(ctx.from);
+    const name = user.secretary_name || 'Секретарь';
+    const style = SECRETARY_STYLES[user.secretary_style]?.name || user.secretary_style;
+
     const kb = new InlineKeyboard()
       .text('🕐 Утренний дайджест', 'set_morning')
       .text('🌙 Вечерний обзор', 'set_evening').row()
       .text('🌍 Часовой пояс', 'set_timezone')
-      .text('🔕 Не беспокоить', 'set_dnd');
+      .text('🔕 Не беспокоить', 'set_dnd').row()
+      .text('🎭 Сменить имя', 'change_name')
+      .text('🎨 Сменить стиль', 'change_style');
 
     await ctx.reply(
       `⚙️ <b>Настройки:</b>\n\n` +
+      `🤖 Секретарь: <b>${escapeHtml(name)}</b>\n` +
+      `🎭 Стиль: ${style}\n` +
       `🌍 Часовой пояс: <code>${user.timezone}</code>\n` +
-      `🕐 Утренний дайджест: <code>${user.morning_digest}</code>\n` +
-      `🌙 Вечерний обзор: <code>${user.evening_review}</code>\n` +
-      `🔕 Не беспокоить: <code>${user.dnd_start} - ${user.dnd_end}</code>`,
+      `🕐 Утро: <code>${user.morning_digest}</code>\n` +
+      `🌙 Вечер: <code>${user.evening_review}</code>\n` +
+      `🔕 DND: <code>${user.dnd_start} - ${user.dnd_end}</code>`,
       { parse_mode: 'HTML', reply_markup: kb }
     );
   });
 
-  // ============ /timezone ============
   bot.command('timezone', async (ctx) => {
     const user = db.ensureUser(ctx.from);
     const tz = ctx.match?.trim();
-    if (!tz) {
-      return ctx.reply(`Текущий: <code>${user.timezone}</code>\nИзменить: /timezone Europe/Moscow`, { parse_mode: 'HTML' });
-    }
+    if (!tz) return ctx.reply(`Текущий: <code>${user.timezone}</code>\n/timezone Europe/Moscow`, { parse_mode: 'HTML' });
     try {
       const { DateTime } = require('luxon');
-      DateTime.now().setZone(tz);
+      const test = DateTime.now().setZone(tz);
+      if (!test.isValid) throw new Error();
       db.updateUserSettings(user.id, { timezone: tz });
       await ctx.reply(`✅ Часовой пояс: <code>${tz}</code>`, { parse_mode: 'HTML' });
-    } catch (e) {
-      await ctx.reply('❌ Неверный часовой пояс. Примеры: Europe/Moscow, Asia/Tokyo, America/New_York');
-    }
+    } catch { await ctx.reply('❌ Неверный часовой пояс'); }
   });
 
-  // ============ Inline кнопки ============
+  // ============ INLINE CALLBACKS ============
+
+  // Task actions
   bot.callbackQuery(/^done_(\d+)$/, async (ctx) => {
     const taskId = parseInt(ctx.match[1]);
     const user = db.ensureUser(ctx.from);
     const task = db.getTaskById(taskId);
-    if (!task || task.user_id !== user.id) return ctx.answerCallbackQuery('Задача не найдена');
+    if (!task || task.user_id !== user.id) return ctx.answerCallbackQuery('Не найдена');
     db.updateTask(taskId, { status: 'done' });
-    await ctx.answerCallbackQuery('✅ Задача выполнена!');
-    await ctx.editMessageText(ctx.msg.text.replace(formatTask(task), formatTask({ ...task, status: 'done' })), { parse_mode: 'HTML' });
+    await ctx.answerCallbackQuery('✅ Готово!');
+    try { await ctx.editMessageReplyMarkup({ inline_keyboard: [] }); } catch {}
   });
 
   bot.callbackQuery(/^move_today_(\d+)$/, async (ctx) => {
-    const taskId = parseInt(ctx.match[1]);
     const user = db.ensureUser(ctx.from);
-    const task = db.getTaskById(taskId);
-    if (!task || task.user_id !== user.id) return ctx.answerCallbackQuery('Задача не найдена');
-    db.updateTask(taskId, { due_date: todayStr(user.timezone) });
-    await ctx.answerCallbackQuery('📅 Перенесено на сегодня');
+    const task = db.getTaskById(parseInt(ctx.match[1]));
+    if (!task || task.user_id !== user.id) return ctx.answerCallbackQuery('Не найдена');
+    db.updateTask(task.id, { due_date: todayStr(user.timezone) });
+    await ctx.answerCallbackQuery('📅 На сегодня');
   });
 
   bot.callbackQuery(/^move_tmr_(\d+)$/, async (ctx) => {
+    const user = db.ensureUser(ctx.from);
+    const task = db.getTaskById(parseInt(ctx.match[1]));
+    if (!task || task.user_id !== user.id) return ctx.answerCallbackQuery('Не найдена');
+    db.updateTask(task.id, { due_date: tomorrowStr(user.timezone) });
+    await ctx.answerCallbackQuery('📅 На завтра');
+  });
+
+  bot.callbackQuery(/^task_reschedule_(\d+)$/, async (ctx) => {
     const taskId = parseInt(ctx.match[1]);
+    await ctx.answerCallbackQuery();
+    const { DateTime } = require('luxon');
     const user = db.ensureUser(ctx.from);
-    const task = db.getTaskById(taskId);
-    if (!task || task.user_id !== user.id) return ctx.answerCallbackQuery('Задача не найдена');
-    db.updateTask(taskId, { due_date: tomorrowStr(user.timezone) });
-    await ctx.answerCallbackQuery('📅 Перенесено на завтра');
+    const now = DateTime.now().setZone(user.timezone);
+    const kb = new InlineKeyboard()
+      .text('Сегодня', `move_today_${taskId}`)
+      .text('Завтра', `move_tmr_${taskId}`).row()
+      .text('Послезавтра', `move_date_${taskId}_${now.plus({days:2}).toFormat('yyyy-MM-dd')}`)
+      .text('Через неделю', `move_date_${taskId}_${now.plus({days:7}).toFormat('yyyy-MM-dd')}`);
+    await ctx.reply('📅 Перенести на:', { reply_markup: kb });
   });
 
-  bot.callbackQuery(/^habit_done_(\d+)$/, async (ctx) => {
-    const habitId = parseInt(ctx.match[1]);
+  bot.callbackQuery(/^move_date_(\d+)_(\d{4}-\d{2}-\d{2})$/, async (ctx) => {
+    const user = db.ensureUser(ctx.from);
+    const task = db.getTaskById(parseInt(ctx.match[1]));
+    if (!task || task.user_id !== user.id) return ctx.answerCallbackQuery('Не найдена');
+    db.updateTask(task.id, { due_date: ctx.match[2] });
+    await ctx.answerCallbackQuery(`📅 Перенесено на ${formatDateRu(ctx.match[2])}`);
+  });
+
+  bot.callbackQuery(/^move_all_today$/, async (ctx) => {
     const user = db.ensureUser(ctx.from);
     const today = todayStr(user.timezone);
-    db.logHabit(habitId, today);
-    await ctx.answerCallbackQuery('✅ Привычка отмечена!');
+    const overdue = db.getOverdueTasks(user.id, today);
+    overdue.forEach(t => db.updateTask(t.id, { due_date: today }));
+    await ctx.answerCallbackQuery(`📅 ${overdue.length} задач на сегодня`);
   });
 
-  bot.callbackQuery('today', async (ctx) => {
-    await ctx.answerCallbackQuery();
-    // Отправить задачи на сегодня
+  bot.callbackQuery(/^move_all_tmr_(.+)$/, async (ctx) => {
     const user = db.ensureUser(ctx.from);
     const today = todayStr(user.timezone);
-    const tasks = db.getTasksByDate(user.id, today);
-    let text = `📅 <b>Сегодня:</b>\n\n`;
-    if (tasks.length === 0) text += 'Нет задач 🎉';
-    else tasks.forEach(t => { text += formatTask(t) + ` <i>[#${t.id}]</i>\n`; });
-    await ctx.reply(text, { parse_mode: 'HTML' });
-  });
-
-  bot.callbackQuery('new_task', async (ctx) => {
-    await ctx.answerCallbackQuery();
-    ctx.session.step = 'awaiting_task_title';
-    ctx.session.data = {};
-    await ctx.reply('✏️ Напиши задачу:');
-  });
-
-  bot.callbackQuery('new_task_today', async (ctx) => {
-    await ctx.answerCallbackQuery();
-    ctx.session.step = 'awaiting_task_title';
-    ctx.session.data = { forceDate: 'today' };
-    await ctx.reply('✏️ Напиши задачу на сегодня:');
-  });
-
-  bot.callbackQuery('new_task_tomorrow', async (ctx) => {
-    await ctx.answerCallbackQuery();
-    ctx.session.step = 'awaiting_task_title';
-    ctx.session.data = { forceDate: 'tomorrow' };
-    await ctx.reply('✏️ Напиши задачу на завтра:');
-  });
-
-  bot.callbackQuery('show_tomorrow', async (ctx) => {
-    await ctx.answerCallbackQuery();
-    const user = db.ensureUser(ctx.from);
     const tmr = tomorrowStr(user.timezone);
-    const tasks = db.getTasksByDate(user.id, tmr);
-    let text = `📅 <b>Завтра (${formatDateRu(tmr)}):</b>\n\n`;
-    if (tasks.length === 0) text += 'Нет задач';
-    else tasks.forEach(t => { text += formatTask(t) + ` <i>[#${t.id}]</i>\n`; });
-    await ctx.reply(text, { parse_mode: 'HTML' });
+    const source = ctx.match[1];
+    let tasks;
+    if (source === 'overdue') {
+      tasks = db.getOverdueTasks(user.id, today);
+    } else {
+      tasks = db.getTasksByDate(user.id, source).filter(t => t.status !== 'done');
+    }
+    tasks.forEach(t => db.updateTask(t.id, { due_date: tmr }));
+    await ctx.answerCallbackQuery(`📅 ${tasks.length} задач на завтра`);
   });
 
-  bot.callbackQuery('habits', async (ctx) => {
-    await ctx.answerCallbackQuery();
-    const user = db.ensureUser(ctx.from);
-    const habits = db.getUserHabits(user.id);
-    if (habits.length === 0) return ctx.reply('Нет привычек. Добавь: /addhabit Название');
-    let text = `📊 <b>Привычки:</b>\n\n`;
-    habits.forEach(h => { text += `${h.emoji} ${escapeHtml(h.title)} — 🔥 ${h.current_streak} дн.\n`; });
-    await ctx.reply(text, { parse_mode: 'HTML' });
-  });
-
-  bot.callbackQuery('settings', async (ctx) => {
-    await ctx.answerCallbackQuery();
-    const user = db.ensureUser(ctx.from);
-    await ctx.reply(
-      `⚙️ <b>Настройки:</b>\n🌍 ${user.timezone}\n🕐 Дайджест: ${user.morning_digest}\n🌙 Обзор: ${user.evening_review}`,
-      { parse_mode: 'HTML' }
-    );
-  });
-
-  // Настройки — callback для кнопок
-  bot.callbackQuery('set_morning', async (ctx) => {
-    await ctx.answerCallbackQuery();
-    ctx.session.step = 'set_morning_time';
-    await ctx.reply('🕐 Введи время утреннего дайджеста (HH:MM, например 08:00):');
-  });
-
-  bot.callbackQuery('set_evening', async (ctx) => {
-    await ctx.answerCallbackQuery();
-    ctx.session.step = 'set_evening_time';
-    await ctx.reply('🌙 Введи время вечернего обзора (HH:MM, например 21:00):');
-  });
-
-  bot.callbackQuery('set_timezone', async (ctx) => {
-    await ctx.answerCallbackQuery();
-    ctx.session.step = 'set_tz';
-    await ctx.reply('🌍 Введи часовой пояс (например Europe/Moscow, Asia/Tokyo):');
-  });
-
-  bot.callbackQuery('set_dnd', async (ctx) => {
-    await ctx.answerCallbackQuery();
-    ctx.session.step = 'set_dnd_start';
-    await ctx.reply('🔕 Введи начало "Не беспокоить" (HH:MM, например 23:00):');
-  });
-
-  // Кнопки задачи — после создания
   bot.callbackQuery(/^task_remind_(\d+)$/, async (ctx) => {
     const taskId = parseInt(ctx.match[1]);
     await ctx.answerCallbackQuery();
     const kb = new InlineKeyboard()
-      .text('5 мин', `remind_${taskId}_5`)
-      .text('15 мин', `remind_${taskId}_15`)
-      .text('30 мин', `remind_${taskId}_30`).row()
-      .text('1 час', `remind_${taskId}_60`)
-      .text('3 часа', `remind_${taskId}_180`)
-      .text('1 день', `remind_${taskId}_1440`);
-    await ctx.reply('⏰ За сколько напомнить?', { reply_markup: kb });
+      .text('5м', `remind_${taskId}_5`)
+      .text('15м', `remind_${taskId}_15`)
+      .text('30м', `remind_${taskId}_30`)
+      .text('1ч', `remind_${taskId}_60`)
+      .text('3ч', `remind_${taskId}_180`);
+    await ctx.reply('⏰ Напомнить через:', { reply_markup: kb });
   });
 
   bot.callbackQuery(/^remind_(\d+)_(\d+)$/, async (ctx) => {
     const taskId = parseInt(ctx.match[1]);
     const minutes = parseInt(ctx.match[2]);
     const user = db.ensureUser(ctx.from);
-    const task = db.getTaskById(taskId);
-
-    if (!task || task.user_id !== user.id) return ctx.answerCallbackQuery('Задача не найдена');
-
-    if (task.due_date && task.due_time) {
-      const fireAt = localToUtc(task.due_date, task.due_time, user.timezone);
-      if (fireAt) {
-        const { DateTime } = require('luxon');
-        const fireTime = DateTime.fromISO(fireAt).minus({ minutes });
-        createReminder(taskId, user.id, fireTime.toISO(), minutes);
-        await ctx.answerCallbackQuery(`✅ Напоминание за ${minutes} мин`);
-        return;
-      }
-    }
-
-    // Если нет даты/времени — напомнить через N минут от сейчас
     const { DateTime } = require('luxon');
     const fireAt = DateTime.now().plus({ minutes }).toUTC().toISO();
-    createReminder(taskId, user.id, fireAt, minutes);
-    await ctx.answerCallbackQuery(`✅ Напомню через ${minutes} мин`);
+    db.createReminder(taskId, user.id, fireAt, minutes);
+    await ctx.answerCallbackQuery(`⏰ Напомню через ${minutes} мин`);
   });
 
   bot.callbackQuery(/^task_priority_(\d+)$/, async (ctx) => {
     const taskId = parseInt(ctx.match[1]);
     await ctx.answerCallbackQuery();
     const kb = new InlineKeyboard()
-      .text('🔴 Срочно', `setpri_${taskId}_1`)
-      .text('🟠 Высокий', `setpri_${taskId}_2`).row()
-      .text('🟡 Средний', `setpri_${taskId}_3`)
-      .text('🟢 Низкий', `setpri_${taskId}_4`);
-    await ctx.reply('Выбери приоритет:', { reply_markup: kb });
+      .text('🔴 Срочно', `setpri_${taskId}_1`).text('🟠 Высокий', `setpri_${taskId}_2`).row()
+      .text('🟡 Средний', `setpri_${taskId}_3`).text('🟢 Низкий', `setpri_${taskId}_4`);
+    await ctx.reply('Приоритет:', { reply_markup: kb });
   });
 
   bot.callbackQuery(/^setpri_(\d+)_(\d+)$/, async (ctx) => {
-    const taskId = parseInt(ctx.match[1]);
-    const priority = parseInt(ctx.match[2]);
     const user = db.ensureUser(ctx.from);
-    const task = db.getTaskById(taskId);
+    const task = db.getTaskById(parseInt(ctx.match[1]));
     if (!task || task.user_id !== user.id) return ctx.answerCallbackQuery('Не найдена');
-    db.updateTask(taskId, { priority });
-    await ctx.answerCallbackQuery(`✅ Приоритет: ${PRIORITIES[priority].label}`);
+    db.updateTask(task.id, { priority: parseInt(ctx.match[2]) });
+    await ctx.answerCallbackQuery('✅ Приоритет обновлён');
   });
 
   bot.callbackQuery(/^task_cat_(\d+)$/, async (ctx) => {
@@ -499,34 +492,119 @@ function createBot(token, webappUrl) {
       kb.text(`${c.emoji} ${c.name}`, `setcat_${taskId}_${c.id}`);
       if (i % 2 === 1) kb.row();
     });
-    await ctx.reply('Выбери категорию:', { reply_markup: kb });
+    await ctx.reply('Категория:', { reply_markup: kb });
   });
 
   bot.callbackQuery(/^setcat_(\d+)_(\d+)$/, async (ctx) => {
-    const taskId = parseInt(ctx.match[1]);
-    const catId = parseInt(ctx.match[2]);
     const user = db.ensureUser(ctx.from);
-    const task = db.getTaskById(taskId);
+    const task = db.getTaskById(parseInt(ctx.match[1]));
     if (!task || task.user_id !== user.id) return ctx.answerCallbackQuery('Не найдена');
-    db.updateTask(taskId, { category_id: catId });
+    db.updateTask(task.id, { category_id: parseInt(ctx.match[2]) });
     await ctx.answerCallbackQuery('✅ Категория установлена');
   });
 
   bot.callbackQuery(/^task_delete_(\d+)$/, async (ctx) => {
-    const taskId = parseInt(ctx.match[1]);
     const user = db.ensureUser(ctx.from);
-    const task = db.getTaskById(taskId);
+    const task = db.getTaskById(parseInt(ctx.match[1]));
     if (!task || task.user_id !== user.id) return ctx.answerCallbackQuery('Не найдена');
-    db.deleteTask(taskId);
-    await ctx.answerCallbackQuery('🗑 Задача удалена');
+    db.deleteTask(task.id);
+    await ctx.answerCallbackQuery('🗑 Удалена');
+    try { await ctx.editMessageReplyMarkup({ inline_keyboard: [] }); } catch {}
   });
 
-  // ============ Обработка обычных сообщений (быстрое создание задач) ============
+  bot.callbackQuery(/^habit_done_(\d+)$/, async (ctx) => {
+    const user = db.ensureUser(ctx.from);
+    db.logHabit(parseInt(ctx.match[1]), todayStr(user.timezone));
+    await ctx.answerCallbackQuery('✅ Привычка отмечена!');
+  });
+
+  // View callbacks
+  bot.callbackQuery('today', async (ctx) => { await ctx.answerCallbackQuery(); await showTasks(ctx, 'today'); });
+  bot.callbackQuery('show_tomorrow', async (ctx) => { await ctx.answerCallbackQuery(); await showTasks(ctx, 'tomorrow'); });
+  bot.callbackQuery('habits', async (ctx) => { await ctx.answerCallbackQuery(); await showTasks(ctx, 'habits'); });
+  bot.callbackQuery('settings', async (ctx) => { await ctx.answerCallbackQuery(); });
+
+  bot.callbackQuery('new_task_today', async (ctx) => {
+    await ctx.answerCallbackQuery();
+    ctx.session.step = 'awaiting_task_title';
+    ctx.session.data = { forceDate: 'today' };
+    await ctx.reply('✏️ Напиши задачу:');
+  });
+
+  bot.callbackQuery('new_task_tomorrow', async (ctx) => {
+    await ctx.answerCallbackQuery();
+    ctx.session.step = 'awaiting_task_title';
+    ctx.session.data = { forceDate: 'tomorrow' };
+    await ctx.reply('✏️ Напиши задачу на завтра:');
+  });
+
+  // Settings callbacks
+  bot.callbackQuery('set_morning', async (ctx) => {
+    await ctx.answerCallbackQuery();
+    ctx.session.step = 'set_morning_time';
+    await ctx.reply('🕐 Время утреннего дайджеста (HH:MM):');
+  });
+
+  bot.callbackQuery('set_evening', async (ctx) => {
+    await ctx.answerCallbackQuery();
+    ctx.session.step = 'set_evening_time';
+    await ctx.reply('🌙 Время вечернего обзора (HH:MM):');
+  });
+
+  bot.callbackQuery('set_timezone', async (ctx) => {
+    await ctx.answerCallbackQuery();
+    ctx.session.step = 'set_tz';
+    await ctx.reply('🌍 Часовой пояс (например Europe/Moscow):');
+  });
+
+  bot.callbackQuery('set_dnd', async (ctx) => {
+    await ctx.answerCallbackQuery();
+    ctx.session.step = 'set_dnd_start';
+    await ctx.reply('🔕 Начало "Не беспокоить" (HH:MM):');
+  });
+
+  bot.callbackQuery('change_name', async (ctx) => {
+    await ctx.answerCallbackQuery();
+    ctx.session.step = 'rename_secretary';
+    await ctx.reply('✍️ Новое имя секретаря:');
+  });
+
+  bot.callbackQuery('change_style', async (ctx) => {
+    await ctx.answerCallbackQuery();
+    const kb = new InlineKeyboard();
+    for (const [key, style] of Object.entries(SECRETARY_STYLES)) {
+      kb.text(style.name, `style_${key}`).row();
+    }
+    await ctx.reply('🎭 Новый стиль:', { reply_markup: kb });
+  });
+
+  // ============ TEXT MESSAGES — основной обработчик ============
   bot.on('message:text', async (ctx) => {
     const user = db.ensureUser(ctx.from);
     const text = ctx.message.text.trim();
 
-    // Обработка шагов настроек
+    // Onboarding steps
+    if (ctx.session.step === 'onboard_name_input') {
+      const name = text.slice(0, 30);
+      db.setSecretaryName(user.id, name);
+      ctx.session.data.secretaryName = name;
+      return showStyleSelection(ctx, name);
+    }
+
+    if (ctx.session.step === 'onboard_about') {
+      db.setUserNotes(user.id, text);
+      db.addMemory(user.id, 'user_info', text);
+      return finishOnboarding(ctx, user);
+    }
+
+    if (ctx.session.step === 'rename_secretary') {
+      const name = text.slice(0, 30);
+      db.setSecretaryName(user.id, name);
+      ctx.session.step = null;
+      return ctx.reply(`✅ Теперь меня зовут <b>${escapeHtml(name)}</b>!`, { parse_mode: 'HTML' });
+    }
+
+    // Settings steps
     if (ctx.session.step === 'set_morning_time') {
       const time = parseTime(text);
       if (!time) return ctx.reply(errorResponse('INVALID_TIME'));
@@ -547,12 +625,12 @@ function createBot(token, webappUrl) {
       try {
         const { DateTime } = require('luxon');
         const test = DateTime.now().setZone(text);
-        if (!test.isValid) throw new Error('Invalid');
+        if (!test.isValid) throw new Error();
         db.updateUserSettings(user.id, { timezone: text });
         ctx.session.step = null;
         return ctx.reply(`✅ Часовой пояс: ${text}`);
       } catch {
-        return ctx.reply('❌ Неверный часовой пояс. Примеры: Europe/Moscow, US/Eastern');
+        return ctx.reply('❌ Неверный. Примеры: Europe/Moscow, US/Eastern');
       }
     }
 
@@ -561,7 +639,7 @@ function createBot(token, webappUrl) {
       if (!time) return ctx.reply(errorResponse('INVALID_TIME'));
       db.updateUserSettings(user.id, { dnd_start: time });
       ctx.session.step = 'set_dnd_end';
-      return ctx.reply(`🔕 Начало тишины: ${time}\nТеперь введи конец (например 07:00):`);
+      return ctx.reply(`🔕 Начало: ${time}. Конец (HH:MM):`);
     }
 
     if (ctx.session.step === 'set_dnd_end') {
@@ -569,83 +647,72 @@ function createBot(token, webappUrl) {
       if (!time) return ctx.reply(errorResponse('INVALID_TIME'));
       db.updateUserSettings(user.id, { dnd_end: time });
       ctx.session.step = null;
-      return ctx.reply(`✅ Не беспокоить: ${time} — готово!`);
+      return ctx.reply(`✅ Не беспокоить: настроено!`);
     }
 
-    // Если ожидаем название задачи
     if (ctx.session.step === 'awaiting_task_title') {
-      const forceDate = ctx.session.data?.forceDate;
       ctx.session.step = null;
+      // Не через AI — если пришло из кнопки "добавить задачу"
+      const forceDate = ctx.session.data?.forceDate;
       ctx.session.data = {};
-      if (forceDate === 'today') {
-        return quickCreateTask(ctx, user, text, todayStr(user.timezone));
-      } else if (forceDate === 'tomorrow') {
-        return quickCreateTask(ctx, user, text, tomorrowStr(user.timezone));
-      }
-      return quickCreateTask(ctx, user, text);
+      const date = forceDate === 'tomorrow' ? tomorrowStr(user.timezone) : todayStr(user.timezone);
+      return quickCreateTask(ctx, user, text, date);
     }
 
-    // Обычное сообщение — создаём задачу
-    if (text.startsWith('/')) return; // Игнорируем неизвестные команды
-    await quickCreateTask(ctx, user, text);
+    // Игнорируем неизвестные команды
+    if (text.startsWith('/')) return;
+
+    // НЕ onboarded — направляем на /start
+    if (!user.onboarded) {
+      return ctx.reply('👋 Нажми /start чтобы начать!');
+    }
+
+    // ====== ВСЁ ОСТАЛЬНОЕ → AI-СЕКРЕТАРЬ ======
+    // Передаём управление AI модулю (подключается в index.js)
+    // AI обработчик добавляется через setupConversationalAI()
   });
 
-  // ============ Быстрое создание задачи из текста ============
+  // ============ Quick task create (fallback без AI) ============
   async function quickCreateTask(ctx, user, text, forcedDate) {
-    // Парсим приоритет
     let priority = 3;
     const priMatch = text.match(/!([1-4])/);
-    if (priMatch) {
-      priority = parseInt(priMatch[1]);
-      text = text.replace(/!([1-4])/, '').trim();
-    }
+    if (priMatch) { priority = parseInt(priMatch[1]); text = text.replace(/!([1-4])/, '').trim(); }
 
-    // Парсим дату
     let dueDate = forcedDate || parseDate(text, user.timezone) || todayStr(user.timezone);
-    // Убираем слова с датой из title
     const dateWords = ['сегодня', 'завтра', 'послезавтра', 'today', 'tomorrow', 'понедельник', 'вторник', 'среда', 'четверг', 'пятница', 'суббота', 'воскресенье'];
     let title = text;
     dateWords.forEach(w => { title = title.replace(new RegExp(w, 'gi'), ''); });
-    // Убираем дату формата DD.MM
     title = title.replace(/\d{1,2}\.\d{1,2}(?:\.\d{2,4})?/g, '');
-
-    // Парсим время
     const dueTime = parseTime(text);
-    if (dueTime) {
-      title = title.replace(/\d{1,2}[:.]\d{2}/g, '');
-    }
-
+    if (dueTime) title = title.replace(/\d{1,2}[:.]\d{2}/g, '');
     title = title.replace(/\s+/g, ' ').trim();
     if (!title) return ctx.reply(errorResponse('EMPTY_TITLE'));
 
     const task = db.createTask(user.id, { title, priority, due_date: dueDate, due_time: dueTime });
 
-    // Автоматическое напоминание если есть время
     if (dueTime && dueDate) {
       const fireAt = localToUtc(dueDate, dueTime, user.timezone);
       if (fireAt) {
         const { DateTime } = require('luxon');
         const fireTime = DateTime.fromISO(fireAt).minus({ minutes: 15 });
-        if (fireTime > DateTime.now()) {
-          createReminder(task.id, user.id, fireTime.toISO(), 15);
-        }
+        if (fireTime > DateTime.now()) db.createReminder(task.id, user.id, fireTime.toISO(), 15);
       }
     }
 
     const kb = new InlineKeyboard()
-      .text('✅ Готово', `done_${task.id}`)
-      .text('⏰ Напомнить', `task_remind_${task.id}`).row()
-      .text('🏷 Приоритет', `task_priority_${task.id}`)
-      .text('📁 Категория', `task_cat_${task.id}`).row()
-      .text('🗑 Удалить', `task_delete_${task.id}`);
+      .text('✅', `done_${task.id}`)
+      .text('⏰', `task_remind_${task.id}`)
+      .text('📅', `task_reschedule_${task.id}`)
+      .text('🏷', `task_priority_${task.id}`)
+      .text('📁', `task_cat_${task.id}`)
+      .text('🗑', `task_delete_${task.id}`);
 
-    let response = `✅ Задача создана:\n\n${formatTask(task, true)} <i>[#${task.id}]</i>`;
-    if (dueTime) response += `\n⏰ Напоминание за 15 мин`;
-
+    let response = `✅ ${formatTask(task, true)} <i>[#${task.id}]</i>`;
+    if (dueTime) response += `\n⏰ Напомню за 15 мин`;
     await ctx.reply(response, { parse_mode: 'HTML', reply_markup: kb });
   }
 
   return bot;
 }
 
-module.exports = { createBot };
+module.exports = { createBot, SECRETARY_STYLES };

@@ -1,18 +1,20 @@
 const https = require('https');
+const { InlineKeyboard } = require('grammy');
 const db = require('../db/database');
-const { todayStr, tomorrowStr, formatTask, escapeHtml, parseDate, parseTime } = require('../utils/helpers');
+const { todayStr, tomorrowStr, formatTask, escapeHtml, parseDate, parseTime, localToUtc, formatDateRu, PRIORITIES } = require('../utils/helpers');
+const { SECRETARY_STYLES } = require('./bot');
 
 const GROQ_API_URL = 'api.groq.com';
 const GROQ_MODEL = 'llama-3.3-70b-versatile';
 
-// Вызов Groq API
+// ============ Groq API call ============
 async function callGroq(messages, groqKey) {
   return new Promise((resolve, reject) => {
     const body = JSON.stringify({
       model: GROQ_MODEL,
       messages,
       temperature: 0.7,
-      max_tokens: 1024,
+      max_tokens: 1500,
     });
 
     const options = {
@@ -44,10 +46,13 @@ async function callGroq(messages, groqKey) {
   });
 }
 
-// Построить контекст пользователя для AI
+// ============ Контекст пользователя для AI ============
 function buildUserContext(user) {
-  const today = todayStr(user.timezone);
-  const tomorrow = tomorrowStr(user.timezone);
+  const { DateTime } = require('luxon');
+  const now = DateTime.now().setZone(user.timezone);
+  const today = now.toFormat('yyyy-MM-dd');
+  const tomorrow = now.plus({ days: 1 }).toFormat('yyyy-MM-dd');
+  const dayNames = ['понедельник', 'вторник', 'среда', 'четверг', 'пятница', 'суббота', 'воскресенье'];
 
   const todayTasks = db.getTasksByDate(user.id, today);
   const tomorrowTasks = db.getTasksByDate(user.id, tomorrow);
@@ -55,222 +60,364 @@ function buildUserContext(user) {
   const allActive = db.getAllActiveTasks(user.id);
   const habits = db.getUserHabits(user.id);
   const categories = db.getCategories(user.id);
+  const memories = db.getMemories(user.id, 20);
 
-  let context = `Сегодня: ${today}\n`;
-  context += `Часовой пояс: ${user.timezone}\n\n`;
+  let ctx = `ТЕКУЩЕЕ ВРЕМЯ: ${dayNames[now.weekday - 1]}, ${today} ${now.toFormat('HH:mm')} (${user.timezone})\n`;
+  ctx += `Пользователь: ${user.tg_first_name || 'Пользователь'}\n`;
+  if (user.user_notes) ctx += `О пользователе: ${user.user_notes}\n`;
+  ctx += '\n';
+
+  if (memories.length > 0) {
+    ctx += 'ЗАПОМНЕННОЕ О ПОЛЬЗОВАТЕЛЕ:\n';
+    memories.forEach(m => { ctx += `- [${m.type}] ${m.content}\n`; });
+    ctx += '\n';
+  }
 
   if (overdue.length > 0) {
-    context += `⚠️ Просроченные задачи (${overdue.length}):\n`;
-    overdue.forEach(t => { context += `- [#${t.id}] ${t.title} (на ${t.due_date})\n`; });
-    context += '\n';
+    ctx += `⚠️ ПРОСРОЧЕННЫЕ (${overdue.length}):\n`;
+    overdue.forEach(t => { ctx += `  #${t.id} | ${t.title} | ${t.due_date} | pri:${t.priority}\n`; });
+    ctx += '\n';
   }
 
-  context += `📅 Задачи на сегодня (${todayTasks.length}):\n`;
-  todayTasks.forEach(t => {
-    context += `- [#${t.id}] ${t.title} (статус: ${t.status}, приоритет: ${t.priority}${t.due_time ? ', время: ' + t.due_time : ''})\n`;
+  ctx += `📅 СЕГОДНЯ ${formatDateRu(today)} (${todayTasks.length} задач):\n`;
+  if (todayTasks.length === 0) ctx += '  (пусто)\n';
+  else todayTasks.forEach(t => {
+    ctx += `  #${t.id} | ${t.status === 'done' ? '✅' : '⬜'} ${t.title}`;
+    if (t.due_time) ctx += ` | ${t.due_time}`;
+    ctx += ` | pri:${t.priority}`;
+    if (t.category_name) ctx += ` | ${t.category_emoji}${t.category_name}`;
+    ctx += '\n';
   });
 
-  context += `\n📅 Задачи на завтра (${tomorrowTasks.length}):\n`;
-  tomorrowTasks.forEach(t => {
-    context += `- [#${t.id}] ${t.title} (статус: ${t.status})\n`;
-  });
+  ctx += `\n📅 ЗАВТРА (${tomorrowTasks.length} задач):\n`;
+  if (tomorrowTasks.length === 0) ctx += '  (пусто)\n';
+  else tomorrowTasks.forEach(t => { ctx += `  #${t.id} | ${t.title}${t.due_time ? ' | ' + t.due_time : ''}\n`; });
 
-  context += `\n📋 Все активные задачи (${allActive.length}):\n`;
-  allActive.slice(0, 20).forEach(t => {
-    context += `- [#${t.id}] ${t.title} (дата: ${t.due_date || 'не указана'}, статус: ${t.status})\n`;
-  });
+  if (allActive.length > todayTasks.length + tomorrowTasks.length) {
+    ctx += `\n📋 ДРУГИЕ АКТИВНЫЕ (${allActive.length - todayTasks.length - tomorrowTasks.length}):\n`;
+    allActive.filter(t => t.due_date !== today && t.due_date !== tomorrow).slice(0, 15).forEach(t => {
+      ctx += `  #${t.id} | ${t.title} | ${t.due_date || 'без даты'}\n`;
+    });
+  }
 
   if (habits.length > 0) {
-    context += `\n📊 Привычки:\n`;
-    habits.forEach(h => { context += `- ${h.title} (стрик: ${h.current_streak} дн.)\n`; });
+    ctx += `\n📊 ПРИВЫЧКИ:\n`;
+    habits.forEach(h => { ctx += `  ${h.emoji} ${h.title} | стрик: ${h.current_streak} | рекорд: ${h.best_streak}\n`; });
   }
 
-  context += `\n📁 Категории: ${categories.map(c => c.emoji + ' ' + c.name).join(', ')}\n`;
+  ctx += `\n📁 КАТЕГОРИИ: ${categories.map(c => `${c.emoji}${c.name}(id:${c.id})`).join(', ')}\n`;
 
-  return context;
+  return ctx;
 }
 
-const SYSTEM_PROMPT = `Ты — Alpha Planner, персональный AI-секретарь и помощник по планированию дел. Ты помогаешь пользователю:
+// ============ System prompt с учётом стиля секретаря ============
+function getSystemPrompt(user) {
+  const name = user.secretary_name || 'Секретарь';
+  const style = user.secretary_style || 'friendly';
 
-1. Планировать день и неделю
-2. Приоритизировать задачи
-3. Давать советы по тайм-менеджменту
-4. Напоминать о важных делах
-5. Помогать разбивать большие задачи на подзадачи
-6. Мотивировать и поддерживать
+  const styleInstructions = {
+    friendly: `Ты общаешься тепло и дружелюбно. Используешь лёгкий юмор, подбадриваешь. Обращаешься на "ты". Добавляешь эмодзи.`,
+    business: `Ты общаешься чётко и профессионально. Краткие ответы по делу. Обращаешься на "вы". Минимум эмодзи, максимум пользы.`,
+    coach: `Ты — энергичный коуч-мотиватор. Толкаешь вперёд, хвалишь за достижения, мягко подталкиваешь при лени. Используешь мотивирующие фразы.`,
+    gentle: `Ты общаешься мягко и заботливо. Не давишь, не торопишь. Предлагаешь, а не приказываешь. Заботишься о самочувствии пользователя.`,
+  };
 
-Стиль общения: дружелюбный, но профессиональный. Отвечай кратко и по делу. Используй эмодзи для наглядности.
+  return `Ты — ${name}, персональный AI-секретарь и планировщик. ${styleInstructions[style] || styleInstructions.friendly}
 
-Если пользователь просит создать задачу, ответь в формате:
-[СОЗДАТЬ_ЗАДАЧУ]
-title: название задачи
-date: YYYY-MM-DD (или "сегодня", "завтра")
-time: HH:MM (если указано)
-priority: 1-4
-[/СОЗДАТЬ_ЗАДАЧУ]
+ТВОИ ВОЗМОЖНОСТИ:
+1. Создавать задачи (с датой, временем, приоритетом, категорией)
+2. Переносить задачи на другую дату
+3. Завершать задачи
+4. Удалять задачи
+5. Создавать привычки
+6. Составлять план дня
+7. Давать советы по продуктивности
+8. Запоминать важную информацию о пользователе
+9. Отвечать на вопросы и вести диалог
 
-Если пользователь просит перенести задачу, ответь в формате:
-[ПЕРЕНЕСТИ_ЗАДАЧУ]
-id: номер задачи
-date: YYYY-MM-DD
-[/ПЕРЕНЕСТИ_ЗАДАЧУ]
+ФОРМАТ КОМАНД (вставляй в ответ когда нужно выполнить действие):
+[TASK_CREATE] title | date(YYYY-MM-DD) | time(HH:MM или null) | priority(1-4) | category_id(число или null) [/TASK_CREATE]
+[TASK_DONE] id [/TASK_DONE]
+[TASK_MOVE] id | date(YYYY-MM-DD) [/TASK_MOVE]
+[TASK_DELETE] id [/TASK_DELETE]
+[HABIT_CREATE] title | emoji [/HABIT_CREATE]
+[MEMORY] тип:содержание [/MEMORY]
 
-Если пользователь просит завершить задачу:
-[ЗАВЕРШИТЬ_ЗАДАЧУ]
-id: номер задачи
-[/ЗАВЕРШИТЬ_ЗАДАЧУ]
+ПРАВИЛА:
+- ВСЕГДА отвечай текстом пользователю + команды если нужны действия
+- Если пользователь просит создать задачу — создай через [TASK_CREATE]
+- Если нет даты — ставь сегодня
+- Если говорит "завтра" — вычисли дату
+- Если просит перенести — используй [TASK_MOVE]
+- Если завершает — [TASK_DONE]
+- Запоминай важное через [MEMORY] (предпочтения:..., факт:..., привычка:...)
+- Отвечай на русском
+- Будь кратким но полезным
+- НЕ используй markdown разметку (**, ##), используй plain text с эмодзи`;
+}
 
-Можешь использовать несколько команд в одном ответе. Всегда добавляй текстовый ответ пользователю помимо команд.`;
-
-// Обработка AI-команд в ответе
-function parseAiCommands(response, user) {
+// ============ Парсинг AI-команд ============
+function parseAndExecuteCommands(response, user) {
   const results = [];
 
-  // Создать задачу
-  const createMatches = response.matchAll(/\[СОЗДАТЬ_ЗАДАЧУ\]([\s\S]*?)\[\/СОЗДАТЬ_ЗАДАЧУ\]/g);
-  for (const match of createMatches) {
-    const block = match[1];
-    const title = block.match(/title:\s*(.+)/)?.[1]?.trim();
-    const dateRaw = block.match(/date:\s*(.+)/)?.[1]?.trim();
-    const timeRaw = block.match(/time:\s*(.+)/)?.[1]?.trim();
-    const priorityRaw = block.match(/priority:\s*(\d)/)?.[1];
+  // TASK_CREATE
+  const creates = [...response.matchAll(/\[TASK_CREATE\]\s*(.+?)\s*\[\/TASK_CREATE\]/gs)];
+  for (const m of creates) {
+    const parts = m[1].split('|').map(s => s.trim());
+    const title = parts[0];
+    const date = parts[1] && parts[1] !== 'null' ? parts[1] : todayStr(user.timezone);
+    const time = parts[2] && parts[2] !== 'null' ? parts[2] : null;
+    const priority = parts[3] ? parseInt(parts[3]) || 3 : 3;
+    const category_id = parts[4] && parts[4] !== 'null' ? parseInt(parts[4]) || null : null;
 
     if (title) {
-      const due_date = parseDate(dateRaw || 'сегодня', user.timezone) || todayStr(user.timezone);
-      const due_time = timeRaw ? parseTime(timeRaw) : null;
-      const priority = priorityRaw ? parseInt(priorityRaw) : 3;
-      const task = db.createTask(user.id, { title, due_date, due_time, priority });
+      const task = db.createTask(user.id, { title, due_date: date, due_time: time, priority, category_id });
+      // Авто-напоминание
+      if (time && date) {
+        const fireAt = localToUtc(date, time, user.timezone);
+        if (fireAt) {
+          const { DateTime } = require('luxon');
+          const fireTime = DateTime.fromISO(fireAt).minus({ minutes: 15 });
+          if (fireTime > DateTime.now()) db.createReminder(task.id, user.id, fireTime.toISO(), 15);
+        }
+      }
       results.push({ type: 'created', task });
     }
   }
 
-  // Перенести задачу
-  const moveMatches = response.matchAll(/\[ПЕРЕНЕСТИ_ЗАДАЧУ\]([\s\S]*?)\[\/ПЕРЕНЕСТИ_ЗАДАЧУ\]/g);
-  for (const match of moveMatches) {
-    const block = match[1];
-    const id = parseInt(block.match(/id:\s*(\d+)/)?.[1]);
-    const dateRaw = block.match(/date:\s*(.+)/)?.[1]?.trim();
-    if (id && dateRaw) {
-      const task = db.getTaskById(id);
-      if (task && task.user_id === user.id) {
-        const due_date = parseDate(dateRaw, user.timezone) || tomorrowStr(user.timezone);
-        db.updateTask(id, { due_date });
-        results.push({ type: 'moved', task: { ...task, due_date } });
-      }
+  // TASK_DONE
+  const dones = [...response.matchAll(/\[TASK_DONE\]\s*(\d+)\s*\[\/TASK_DONE\]/g)];
+  for (const m of dones) {
+    const id = parseInt(m[1]);
+    const task = db.getTaskById(id);
+    if (task && task.user_id === user.id) {
+      db.updateTask(id, { status: 'done' });
+      results.push({ type: 'done', task });
     }
   }
 
-  // Завершить задачу
-  const doneMatches = response.matchAll(/\[ЗАВЕРШИТЬ_ЗАДАЧУ\]([\s\S]*?)\[\/ЗАВЕРШИТЬ_ЗАДАЧУ\]/g);
-  for (const match of doneMatches) {
-    const block = match[1];
-    const id = parseInt(block.match(/id:\s*(\d+)/)?.[1]);
-    if (id) {
-      const task = db.getTaskById(id);
-      if (task && task.user_id === user.id) {
-        db.updateTask(id, { status: 'done' });
-        results.push({ type: 'completed', task });
-      }
+  // TASK_MOVE
+  const moves = [...response.matchAll(/\[TASK_MOVE\]\s*(\d+)\s*\|\s*(.+?)\s*\[\/TASK_MOVE\]/g)];
+  for (const m of moves) {
+    const id = parseInt(m[1]);
+    const date = m[2].trim();
+    const task = db.getTaskById(id);
+    if (task && task.user_id === user.id) {
+      db.updateTask(id, { due_date: date });
+      results.push({ type: 'moved', task, date });
     }
   }
 
-  // Убираем команды из текста ответа
-  let cleanResponse = response
-    .replace(/\[СОЗДАТЬ_ЗАДАЧУ\][\s\S]*?\[\/СОЗДАТЬ_ЗАДАЧУ\]/g, '')
-    .replace(/\[ПЕРЕНЕСТИ_ЗАДАЧУ\][\s\S]*?\[\/ПЕРЕНЕСТИ_ЗАДАЧУ\]/g, '')
-    .replace(/\[ЗАВЕРШИТЬ_ЗАДАЧУ\][\s\S]*?\[\/ЗАВЕРШИТЬ_ЗАДАЧУ\]/g, '')
+  // TASK_DELETE
+  const deletes = [...response.matchAll(/\[TASK_DELETE\]\s*(\d+)\s*\[\/TASK_DELETE\]/g)];
+  for (const m of deletes) {
+    const id = parseInt(m[1]);
+    const task = db.getTaskById(id);
+    if (task && task.user_id === user.id) {
+      db.deleteTask(id);
+      results.push({ type: 'deleted', task });
+    }
+  }
+
+  // HABIT_CREATE
+  const habits = [...response.matchAll(/\[HABIT_CREATE\]\s*(.+?)\s*\[\/HABIT_CREATE\]/g)];
+  for (const m of habits) {
+    const parts = m[1].split('|').map(s => s.trim());
+    const title = parts[0];
+    const emoji = parts[1] || '✅';
+    if (title) {
+      const habit = db.createHabit(user.id, title, emoji);
+      results.push({ type: 'habit', habit });
+    }
+  }
+
+  // MEMORY
+  const memos = [...response.matchAll(/\[MEMORY\]\s*(.+?)\s*\[\/MEMORY\]/g)];
+  for (const m of memos) {
+    const content = m[1].trim();
+    const [type, ...rest] = content.split(':');
+    db.addMemory(user.id, type.trim(), rest.join(':').trim());
+    results.push({ type: 'memory', content: rest.join(':').trim() });
+  }
+
+  // Чистим ответ от команд
+  let clean = response
+    .replace(/\[TASK_CREATE\][\s\S]*?\[\/TASK_CREATE\]/g, '')
+    .replace(/\[TASK_DONE\][\s\S]*?\[\/TASK_DONE\]/g, '')
+    .replace(/\[TASK_MOVE\][\s\S]*?\[\/TASK_MOVE\]/g, '')
+    .replace(/\[TASK_DELETE\][\s\S]*?\[\/TASK_DELETE\]/g, '')
+    .replace(/\[HABIT_CREATE\][\s\S]*?\[\/HABIT_CREATE\]/g, '')
+    .replace(/\[MEMORY\][\s\S]*?\[\/MEMORY\]/g, '')
+    .replace(/\n{3,}/g, '\n\n')
     .trim();
 
-  return { text: cleanResponse, actions: results };
+  return { text: clean, actions: results };
 }
 
-// Подключение AI к боту
-function setupAiAssistant(bot, groqKey) {
+// ============ Основной conversational handler ============
+function setupConversationalAI(bot, groqKey) {
   if (!groqKey) {
-    console.log('[AI] No GROQ_KEY — AI assistant disabled');
+    console.log('[AI] No GROQ_KEY — conversational AI disabled, fallback to simple task creation');
+
+    // Fallback без AI — простое создание задач
+    bot.on('message:text', async (ctx) => {
+      const user = db.ensureUser(ctx.from);
+      if (!user.onboarded || ctx.message.text.startsWith('/')) return;
+      // Создаём задачу из текста
+      const text = ctx.message.text.trim();
+      const date = parseDate(text, user.timezone) || todayStr(user.timezone);
+      const time = parseTime(text);
+      let title = text;
+      ['сегодня', 'завтра', 'послезавтра'].forEach(w => { title = title.replace(new RegExp(w, 'gi'), ''); });
+      title = title.replace(/\d{1,2}[:.]\d{2}/g, '').replace(/\d{1,2}\.\d{1,2}/g, '').replace(/\s+/g, ' ').trim();
+      if (!title) return;
+
+      const task = db.createTask(user.id, { title, due_date: date, due_time: time, priority: 3 });
+      const kb = new InlineKeyboard()
+        .text('✅', `done_${task.id}`).text('⏰', `task_remind_${task.id}`)
+        .text('📅', `task_reschedule_${task.id}`).text('🗑', `task_delete_${task.id}`);
+      await ctx.reply(`✅ ${formatTask(task, true)} [#${task.id}]`, { parse_mode: 'HTML', reply_markup: kb });
+    });
     return;
   }
 
-  // Команда /ai — прямой вопрос
-  bot.command('ai', async (ctx) => {
+  // ====== С AI ======
+  bot.on('message:text', async (ctx) => {
     const user = db.ensureUser(ctx.from);
-    const question = ctx.match?.trim();
-    if (!question) {
-      return ctx.reply(
-        '🤖 <b>AI-Секретарь</b>\n\n' +
-        'Я могу:\n' +
-        '• Спланировать твой день\n' +
-        '• Создать/перенести/завершить задачи\n' +
-        '• Дать советы по продуктивности\n' +
-        '• Разбить большую задачу на шаги\n\n' +
-        'Просто напиши: /ai <i>твой вопрос</i>\n' +
-        'Или используй /plan для плана дня',
-        { parse_mode: 'HTML' }
-      );
-    }
+    const text = ctx.message.text.trim();
+    if (!user.onboarded || text.startsWith('/')) return;
 
-    await processAiMessage(ctx, user, question, groqKey);
+    // Сохраняем сообщение пользователя
+    db.addChatMessage(user.id, 'user', text);
+
+    const thinkingMsg = await ctx.reply('💭');
+
+    try {
+      const context = buildUserContext(user);
+      const history = db.getChatHistory(user.id, 10);
+
+      const messages = [
+        { role: 'system', content: getSystemPrompt(user) + '\n\n' + context },
+      ];
+
+      // Добавляем историю чата
+      for (const msg of history.slice(0, -1)) { // -1 потому что текущее уже в контексте
+        messages.push({ role: msg.role, content: msg.content });
+      }
+      messages.push({ role: 'user', content: text });
+
+      const aiResponse = await callGroq(messages, groqKey);
+      const { text: replyText, actions } = parseAndExecuteCommands(aiResponse, user);
+
+      // Сохраняем ответ
+      db.addChatMessage(user.id, 'assistant', replyText);
+
+      // Формируем ответ
+      let reply = replyText;
+
+      // Добавляем инфо о действиях
+      if (actions.length > 0) {
+        reply += '\n';
+        for (const a of actions) {
+          if (a.type === 'created') reply += `\n✅ Создано: <b>${escapeHtml(a.task.title)}</b> 📅${formatDateRu(a.task.due_date)}${a.task.due_time ? ' ⏰' + a.task.due_time : ''} [#${a.task.id}]`;
+          if (a.type === 'done') reply += `\n✅ Завершено: ${escapeHtml(a.task.title)}`;
+          if (a.type === 'moved') reply += `\n📅 Перенесено: ${escapeHtml(a.task.title)} → ${formatDateRu(a.date)}`;
+          if (a.type === 'deleted') reply += `\n🗑 Удалено: ${escapeHtml(a.task.title)}`;
+          if (a.type === 'habit') reply += `\n📊 Привычка: ${a.habit.emoji} ${escapeHtml(a.habit.title)}`;
+        }
+      }
+
+      // Кнопки для созданных задач
+      const kb = new InlineKeyboard();
+      const createdTasks = actions.filter(a => a.type === 'created');
+      if (createdTasks.length === 1) {
+        const t = createdTasks[0].task;
+        kb.text('✅', `done_${t.id}`).text('⏰', `task_remind_${t.id}`)
+          .text('📅', `task_reschedule_${t.id}`).text('🗑', `task_delete_${t.id}`);
+      }
+
+      await ctx.api.editMessageText(ctx.chat.id, thinkingMsg.message_id, reply, {
+        parse_mode: 'HTML',
+        reply_markup: kb.inline_keyboard.length ? kb : undefined,
+      });
+
+    } catch (e) {
+      console.error('[AI] Error:', e.message);
+      // Fallback — пытаемся создать задачу из текста
+      try {
+        await ctx.api.deleteMessage(ctx.chat.id, thinkingMsg.message_id);
+      } catch {}
+
+      const date = parseDate(text, user.timezone) || todayStr(user.timezone);
+      const time = parseTime(text);
+      let title = text;
+      ['сегодня', 'завтра', 'послезавтра'].forEach(w => { title = title.replace(new RegExp(w, 'gi'), ''); });
+      title = title.replace(/\d{1,2}[:.]\d{2}/g, '').replace(/\d{1,2}\.\d{1,2}/g, '').replace(/\s+/g, ' ').trim();
+      if (!title) return;
+
+      const task = db.createTask(user.id, { title, due_date: date, due_time: time, priority: 3 });
+      const kb = new InlineKeyboard()
+        .text('✅', `done_${task.id}`).text('⏰', `task_remind_${task.id}`)
+        .text('📅', `task_reschedule_${task.id}`).text('🗑', `task_delete_${task.id}`);
+      await ctx.reply(`✅ ${formatTask(task, true)} [#${task.id}]`, { parse_mode: 'HTML', reply_markup: kb });
+    }
   });
 
-  // /plan — план на день
+  // ====== Команды AI ======
   bot.command('plan', async (ctx) => {
     const user = db.ensureUser(ctx.from);
-    const prompt = 'Посмотри мои задачи на сегодня и помоги составить оптимальный план дня. Учти приоритеты и время. Если есть просроченные — предложи что с ними делать.';
-    await processAiMessage(ctx, user, prompt, groqKey);
+    await processAiCommand(ctx, user, 'Составь мне оптимальный план на сегодня. Учти приоритеты, время и просроченные задачи.', groqKey);
   });
 
-  // /breakdown — разбить задачу
   bot.command('breakdown', async (ctx) => {
     const user = db.ensureUser(ctx.from);
     const text = ctx.match?.trim();
-    if (!text) return ctx.reply('Используй: /breakdown <i>описание большой задачи</i>', { parse_mode: 'HTML' });
-    const prompt = `Разбей эту задачу на конкретные подзадачи (шаги) и создай их: "${text}"`;
-    await processAiMessage(ctx, user, prompt, groqKey);
+    if (!text) return ctx.reply('Напиши: /breakdown описание большой задачи');
+    await processAiCommand(ctx, user, `Разбей задачу на подзадачи и создай их: "${text}"`, groqKey);
   });
 
-  // /advice — совет по продуктивности
   bot.command('advice', async (ctx) => {
     const user = db.ensureUser(ctx.from);
-    const prompt = 'Дай мне краткий совет по продуктивности на основе моих текущих задач и привычек. Что я делаю хорошо? Что можно улучшить?';
-    await processAiMessage(ctx, user, prompt, groqKey);
+    await processAiCommand(ctx, user, 'Дай совет по продуктивности на основе моих задач и привычек.', groqKey);
   });
 
-  console.log('[AI] Groq AI assistant enabled');
+  bot.command('ai', async (ctx) => {
+    const user = db.ensureUser(ctx.from);
+    const text = ctx.match?.trim();
+    if (!text) return ctx.reply('Просто напиши мне — я всегда на связи! 💬');
+    await processAiCommand(ctx, user, text, groqKey);
+  });
+
+  console.log('[AI] Conversational AI enabled');
 }
 
-async function processAiMessage(ctx, user, message, groqKey) {
-  const thinkingMsg = await ctx.reply('🤖 Думаю...');
-
+async function processAiCommand(ctx, user, message, groqKey) {
+  const thinkingMsg = await ctx.reply('💭');
   try {
     const context = buildUserContext(user);
     const messages = [
-      { role: 'system', content: SYSTEM_PROMPT + '\n\nКонтекст пользователя:\n' + context },
+      { role: 'system', content: getSystemPrompt(user) + '\n\n' + context },
       { role: 'user', content: message },
     ];
 
     const aiResponse = await callGroq(messages, groqKey);
-    const { text, actions } = parseAiCommands(aiResponse, user);
+    const { text, actions } = parseAndExecuteCommands(aiResponse, user);
 
-    // Формируем ответ
-    let reply = `🤖 ${text}`;
-
+    let reply = text;
     if (actions.length > 0) {
-      reply += '\n\n📝 <b>Выполнено:</b>';
+      reply += '\n';
       for (const a of actions) {
-        if (a.type === 'created') reply += `\n✅ Создана: ${escapeHtml(a.task.title)}`;
-        if (a.type === 'moved') reply += `\n📅 Перенесена: ${escapeHtml(a.task.title)} → ${a.task.due_date}`;
-        if (a.type === 'completed') reply += `\n✅ Завершена: ${escapeHtml(a.task.title)}`;
+        if (a.type === 'created') reply += `\n✅ <b>${escapeHtml(a.task.title)}</b> 📅${formatDateRu(a.task.due_date)}${a.task.due_time ? ' ⏰' + a.task.due_time : ''}`;
+        if (a.type === 'done') reply += `\n✅ Завершено: ${escapeHtml(a.task.title)}`;
+        if (a.type === 'moved') reply += `\n📅 Перенесено: ${escapeHtml(a.task.title)}`;
       }
     }
 
     await ctx.api.editMessageText(ctx.chat.id, thinkingMsg.message_id, reply, { parse_mode: 'HTML' });
   } catch (e) {
     console.error('[AI] Error:', e.message);
-    await ctx.api.editMessageText(ctx.chat.id, thinkingMsg.message_id,
-      '❌ Ошибка AI: ' + escapeHtml(e.message) + '\n💡 Проверь GROQ_KEY в .env',
-      { parse_mode: 'HTML' }
-    );
+    await ctx.api.editMessageText(ctx.chat.id, thinkingMsg.message_id, `❌ ${escapeHtml(e.message)}`, { parse_mode: 'HTML' });
   }
 }
 
-module.exports = { setupAiAssistant, callGroq, buildUserContext };
+module.exports = { setupConversationalAI, callGroq, buildUserContext, getSystemPrompt };

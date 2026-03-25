@@ -148,6 +148,18 @@ pm2 save
 
 ## Changelog
 
+### v2.0.0 (2026-03-26)
+- **Conversational-first** — секретарь как основной режим, не команды
+- **Onboarding** — выбор имени секретаря (Алиса/Макс/Джарвис/своё) + стиль общения (дружелюбный/деловой/коуч/мягкий)
+- **4 стиля секретаря** — friendly, business, coach, gentle — влияет на тон AI
+- **Persistent memory** — секретарь запоминает важное о пользователе (таблица secretary_memory)
+- **Chat history** — последние 50 сообщений сохраняются, AI видит контекст (таблица chat_history)
+- **Голосовые сообщения** — Groq Whisper распознавание → AI парсит задачи из речи
+- **User notes** — пользователь рассказывает о себе при онбординге, AI учитывает
+- **Новые таблицы БД** — secretary_memory, chat_history + поля users: secretary_name, secretary_style, onboarded, user_notes
+- **AI команды** — [TASK_CREATE], [TASK_DONE], [TASK_MOVE], [TASK_DELETE], [HABIT_CREATE], [MEMORY]
+- **Fallback** — при ошибке AI, задачи создаются через парсинг текста
+
 ### v1.0.0 (2026-03-25)
 - **Создан проект** — полная архитектура бот + вебапп
 - **Telegram бот** — grammY, 15+ команд, inline кнопки

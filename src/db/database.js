@@ -29,8 +29,28 @@ function initSchema() {
       evening_review TEXT DEFAULT '21:00',
       dnd_start TEXT DEFAULT '23:00',
       dnd_end TEXT DEFAULT '07:00',
+      secretary_name TEXT DEFAULT NULL,
+      secretary_style TEXT DEFAULT 'friendly',
+      onboarded INTEGER DEFAULT 0,
+      user_notes TEXT DEFAULT NULL,
       created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
       updated_at DATETIME DEFAULT CURRENT_TIMESTAMP
+    );
+
+    CREATE TABLE IF NOT EXISTS secretary_memory (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      user_id INTEGER NOT NULL REFERENCES users(id),
+      type TEXT NOT NULL,
+      content TEXT NOT NULL,
+      created_at DATETIME DEFAULT CURRENT_TIMESTAMP
+    );
+
+    CREATE TABLE IF NOT EXISTS chat_history (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      user_id INTEGER NOT NULL REFERENCES users(id),
+      role TEXT NOT NULL,
+      content TEXT NOT NULL,
+      created_at DATETIME DEFAULT CURRENT_TIMESTAMP
     );
 
     CREATE TABLE IF NOT EXISTS categories (
@@ -336,6 +356,43 @@ function getWeeklyStats(userId, startDate, endDate) {
   return db.prepare('SELECT * FROM daily_stats WHERE user_id = ? AND date BETWEEN ? AND ? ORDER BY date').all(userId, startDate, endDate);
 }
 
+// --- Secretary memory ---
+function addMemory(userId, type, content) {
+  db.prepare('INSERT INTO secretary_memory (user_id, type, content) VALUES (?, ?, ?)').run(userId, type, content);
+}
+
+function getMemories(userId, limit = 50) {
+  return db.prepare('SELECT * FROM secretary_memory WHERE user_id = ? ORDER BY created_at DESC LIMIT ?').all(userId, limit);
+}
+
+// --- Chat history ---
+function addChatMessage(userId, role, content) {
+  db.prepare('INSERT INTO chat_history (user_id, role, content) VALUES (?, ?, ?)').run(userId, role, content);
+  // Оставляем только последние 50 сообщений
+  db.prepare('DELETE FROM chat_history WHERE user_id = ? AND id NOT IN (SELECT id FROM chat_history WHERE user_id = ? ORDER BY id DESC LIMIT 50)').run(userId, userId);
+}
+
+function getChatHistory(userId, limit = 20) {
+  return db.prepare('SELECT * FROM chat_history WHERE user_id = ? ORDER BY id DESC LIMIT ?').all(userId, limit).reverse();
+}
+
+// --- Secretary setup ---
+function setSecretaryName(userId, name) {
+  db.prepare('UPDATE users SET secretary_name = ?, updated_at = CURRENT_TIMESTAMP WHERE id = ?').run(name, userId);
+}
+
+function setSecretaryStyle(userId, style) {
+  db.prepare('UPDATE users SET secretary_style = ?, updated_at = CURRENT_TIMESTAMP WHERE id = ?').run(style, userId);
+}
+
+function setOnboarded(userId) {
+  db.prepare('UPDATE users SET onboarded = 1, updated_at = CURRENT_TIMESTAMP WHERE id = ?').run(userId);
+}
+
+function setUserNotes(userId, notes) {
+  db.prepare('UPDATE users SET user_notes = ?, updated_at = CURRENT_TIMESTAMP WHERE id = ?').run(notes, userId);
+}
+
 // --- Для API (webapp) ---
 function getTasksForApi(userId, { date, status, category_id, search }) {
   let sql = `SELECT t.*, c.name as category_name, c.emoji as category_emoji FROM tasks t LEFT JOIN categories c ON t.category_id = c.id WHERE t.user_id = ? AND t.parent_task_id IS NULL`;
@@ -354,5 +411,8 @@ module.exports = {
   createTask, getTasksByDate, getTasksByStatus, getOverdueTasks, getAllActiveTasks, getSubtasks, updateTask, deleteTask, getTaskById, getTasksForApi,
   createReminder, getPendingReminders, markReminderSent,
   createHabit, getUserHabits, logHabit, getHabitLog,
-  getDailyStats, getWeeklyStats
+  getDailyStats, getWeeklyStats,
+  addMemory, getMemories,
+  addChatMessage, getChatHistory,
+  setSecretaryName, setSecretaryStyle, setOnboarded, setUserNotes
 };
