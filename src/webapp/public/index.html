@@ -1,0 +1,145 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+  <title>Alpha Planner</title>
+  <script src="https://telegram.org/js/telegram-web-app.js"></script>
+  <link rel="stylesheet" href="style.css">
+</head>
+<body>
+  <div id="app">
+    <!-- Header -->
+    <header class="header">
+      <h1>📋 Alpha Planner</h1>
+      <div class="header-actions">
+        <button class="btn-icon" id="btnHabits" title="Привычки">📊</button>
+        <button class="btn-icon" id="btnSettings" title="Настройки">⚙️</button>
+      </div>
+    </header>
+
+    <!-- Tabs -->
+    <nav class="tabs">
+      <button class="tab active" data-tab="today">Сегодня</button>
+      <button class="tab" data-tab="tomorrow">Завтра</button>
+      <button class="tab" data-tab="week">Неделя</button>
+      <button class="tab" data-tab="all">Все</button>
+    </nav>
+
+    <!-- Quick Add -->
+    <div class="quick-add">
+      <input type="text" id="quickInput" placeholder="Добавить задачу..." autocomplete="off">
+      <button id="quickAddBtn" class="btn-add">➕</button>
+    </div>
+
+    <!-- Task List -->
+    <div id="taskList" class="task-list"></div>
+
+    <!-- Stats Bar -->
+    <div class="stats-bar" id="statsBar">
+      <span id="statsDone">✅ 0</span>
+      <span id="statsTotal">📋 0</span>
+      <span id="statsOverdue">⚠️ 0</span>
+    </div>
+
+    <!-- Modals -->
+    <div class="modal-overlay" id="modalOverlay">
+      <div class="modal" id="taskModal">
+        <div class="modal-header">
+          <h2 id="modalTitle">Новая задача</h2>
+          <button class="modal-close" id="modalClose">&times;</button>
+        </div>
+        <div class="modal-body">
+          <input type="text" id="taskTitle" placeholder="Название задачи" class="input">
+          <textarea id="taskDesc" placeholder="Описание (необязательно)" class="input textarea"></textarea>
+          <div class="form-row">
+            <div class="form-group">
+              <label>📅 Дата</label>
+              <input type="date" id="taskDate" class="input">
+            </div>
+            <div class="form-group">
+              <label>⏰ Время</label>
+              <input type="time" id="taskTime" class="input">
+            </div>
+          </div>
+          <div class="form-row">
+            <div class="form-group">
+              <label>🏷 Приоритет</label>
+              <select id="taskPriority" class="input">
+                <option value="1">🔴 Срочно</option>
+                <option value="2">🟠 Высокий</option>
+                <option value="3" selected>🟡 Средний</option>
+                <option value="4">🟢 Низкий</option>
+              </select>
+            </div>
+            <div class="form-group">
+              <label>📁 Категория</label>
+              <select id="taskCategory" class="input">
+                <option value="">Без категории</option>
+              </select>
+            </div>
+          </div>
+        </div>
+        <div class="modal-footer">
+          <button class="btn btn-danger" id="btnDeleteTask" style="display:none">🗑 Удалить</button>
+          <button class="btn btn-primary" id="btnSaveTask">💾 Сохранить</button>
+        </div>
+      </div>
+    </div>
+
+    <!-- Habits Modal -->
+    <div class="modal-overlay" id="habitsOverlay">
+      <div class="modal" id="habitsModal">
+        <div class="modal-header">
+          <h2>📊 Привычки</h2>
+          <button class="modal-close" id="habitsClose">&times;</button>
+        </div>
+        <div class="modal-body" id="habitsList"></div>
+        <div class="modal-footer">
+          <input type="text" id="newHabitInput" placeholder="Новая привычка..." class="input" style="flex:1">
+          <button class="btn btn-primary" id="btnAddHabit">➕</button>
+        </div>
+      </div>
+    </div>
+
+    <!-- Settings Modal -->
+    <div class="modal-overlay" id="settingsOverlay">
+      <div class="modal" id="settingsModal">
+        <div class="modal-header">
+          <h2>⚙️ Настройки</h2>
+          <button class="modal-close" id="settingsClose">&times;</button>
+        </div>
+        <div class="modal-body">
+          <div class="form-group">
+            <label>🌍 Часовой пояс</label>
+            <select id="setTimezone" class="input">
+              <option value="Europe/Moscow">Москва (UTC+3)</option>
+              <option value="Europe/Kiev">Киев (UTC+2)</option>
+              <option value="Asia/Almaty">Алматы (UTC+6)</option>
+              <option value="Asia/Tashkent">Ташкент (UTC+5)</option>
+              <option value="Europe/London">Лондон (UTC+0)</option>
+              <option value="US/Eastern">Нью-Йорк (UTC-5)</option>
+              <option value="Asia/Tokyo">Токио (UTC+9)</option>
+            </select>
+          </div>
+          <div class="form-row">
+            <div class="form-group">
+              <label>🕐 Утренний дайджест</label>
+              <input type="time" id="setMorning" class="input" value="08:00">
+            </div>
+            <div class="form-group">
+              <label>🌙 Вечерний обзор</label>
+              <input type="time" id="setEvening" class="input" value="21:00">
+            </div>
+          </div>
+        </div>
+        <div class="modal-footer">
+          <button class="btn btn-primary" id="btnSaveSettings">💾 Сохранить</button>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <script src="app.js"></script>
+</body>
+</html>
