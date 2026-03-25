@@ -420,4 +420,4 @@ async function processAiCommand(ctx, user, message, groqKey) {
   }
 }
 
-module.exports = { setupConversationalAI, callGroq, buildUserContext, getSystemPrompt };
+module.exports = { setupConversationalAI, callGroq, buildUserContext, getSystemPrompt, parseAndExecuteCommands };
