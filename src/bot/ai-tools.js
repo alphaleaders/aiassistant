@@ -9,19 +9,7 @@ const fs = require('fs');
 const path = require('path');
 const { InputFile, InlineKeyboard } = require('grammy');
 
-// ── Lazy-load edge-tts ──────────────────────────────────────────────
-let edgeTts = null;
-function getEdgeTts() {
-  if (edgeTts) return edgeTts;
-  try {
-    edgeTts = require('edge-tts');
-  } catch {
-    console.log('[ai-tools] Installing edge-tts...');
-    require('child_process').execSync('npm install edge-tts', { stdio: 'inherit' });
-    edgeTts = require('edge-tts');
-  }
-  return edgeTts;
-}
+// edge-tts: use Python CLI (pip3 install edge-tts)
 
 // ── HTTP helpers (no axios) ─────────────────────────────────────────
 
@@ -281,34 +269,31 @@ function setupAIToolsHandlers(bot) {
   }
 
   async function handleTts(ctx) {
-    const text = ctx.message.text.trim().substring(0, 3000);
+    const text = ctx.message.text.trim();
     if (!text) return ctx.reply('Отправьте текст для озвучки.');
-
-    const s = getSession(ctx);
-    const voice = s.aiTtsVoice || 'ru-RU-DmitryNeural';
+    const voice = ctx.session.data?.ttsVoice || 'ru-RU-DmitryNeural';
     clearStep(ctx);
-
-    const wait = await ctx.reply('⏳ Генерирую аудио...');
-    const filePath = `/tmp/tts_${ctx.from.id}_${Date.now()}.mp3`;
-
+    const wait = await ctx.reply('⏳ Озвучиваю...');
     try {
-      const tts = getEdgeTts();
-      await tts.ttsPromise(text, filePath, { voice });
-      await ctx.replyWithAudio(new InputFile(filePath), {
-        title: 'TTS Audio',
-        performer: voice,
+      const tmpPath = '/tmp/tts_' + ctx.from.id + '_' + Date.now() + '.mp3';
+      const { execSync } = require('child_process');
+      // Use edge-tts CLI
+      execSync(`edge-tts --voice "${voice}" --text "${text.replace(/"/g, '\\"').slice(0, 2000)}" --write-media "${tmpPath}"`, { timeout: 30000 });
+      const { InputFile } = require('grammy');
+      await ctx.replyWithAudio(new InputFile(tmpPath), {
+        title: 'Озвучка',
+        performer: voice.split('-').slice(0,2).join('-'),
         reply_markup: backKb(),
       });
+      try { require('fs').unlinkSync(tmpPath); } catch {}
     } catch (err) {
       console.error('[ai-tools] tts error:', err.message);
-      await ctx.reply('❌ Ошибка при генерации аудио. Попробуйте снова.', { reply_markup: backKb() });
+      await ctx.reply('❌ Ошибка озвучки. Попробуйте короче текст.', { reply_markup: backKb() });
     }
-
     try { await ctx.api.deleteMessage(ctx.chat.id, wait.message_id); } catch {}
-    try { fs.unlinkSync(filePath); } catch {}
   }
 
-  // ── 3. DeepSeek Chat ──────────────────────────────────────────
+    // ── 3. DeepSeek Chat ──────────────────────────────────────────
 
   bot.callbackQuery('aitool_deepseek', async (ctx) => {
     await ctx.answerCallbackQuery();
