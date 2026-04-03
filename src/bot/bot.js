@@ -295,21 +295,22 @@ function createBot(token, webappUrl) {
     if (webappUrl) kb.url('🌐 Открыть руководство', `${webappUrl}/guide`);
 
     await ctx.reply(
-      `📖 <b>Команды ${escapeHtml(name)}:</b>\n\n` +
-      `<b>Задачи:</b>\n` +
-      `📋 /today · /tomorrow · /week · /all\n` +
-      `✅ /done · ⚠️ /overdue\n\n` +
-      `<b>Планировщик:</b>\n` +
-      `📊 /habits — привычки\n` +
-      `📁 /categories — категории\n` +
-      `⚙️ /settings — настройки\n\n` +
-      `<b>Конференции:</b>\n` +
-      `📹 /meet [название] — создать комнату\n` +
-      `📋 /rooms — мои комнаты\n\n` +
-      `<b>Группы:</b>\n` +
-      `📌 /task · /assign · /list · /board · /stats\n\n` +
-      `<b>Прочее:</b>\n` +
-      `🎭 /rename · /style · /features · /guide\n\n` +
+      `📖 <b>Все команды</b>\n\n` +
+      `<b>📋 Задачи:</b>\n` +
+      `/today · /tomorrow · /week · /all · /overdue\n\n` +
+      `<b>📊 Привычки:</b>\n` +
+      `/habits — трекер привычек\n\n` +
+      `<b>📆 Планирование:</b>\n` +
+      `/daily — дела на день\n` +
+      `/planner — планы (день/неделя/месяц/год)\n` +
+      `/dreams — мечты и цели с AI-коучем\n\n` +
+      `<b>🤖 AI инструменты:</b>\n` +
+      `/aitools — картинки, озвучка, видео, фото\n\n` +
+      `<b>📹 Конференции:</b>\n` +
+      `/meet [название] — создать комнату\n` +
+      `/rooms — мои комнаты\n\n` +
+      `<b>⚙️ Прочее:</b>\n` +
+      `/settings · /rename · /style · /features · /guide\n\n` +
       `💡 Просто пиши текстом или голосом!`,
       { parse_mode: 'HTML', reply_markup: kb }
     );
@@ -328,27 +329,30 @@ function createBot(token, webappUrl) {
   async function showFeaturesMenu(ctx) {
     const kb = new InlineKeyboard()
       .text('🧠 AI-секретарь', 'feat_ai')
-      .text('📋 Задачи', 'feat_tasks').row()
-      .text('⏰ Напоминания', 'feat_reminders')
+      .text('🤖 AI инструменты', 'feat_aitools').row()
+      .text('📋 Задачи', 'feat_tasks')
       .text('📊 Привычки', 'feat_habits').row()
-      .text('👥 Группы', 'feat_groups')
-      .text('📹 Конференции', 'feat_conf').row()
+      .text('🌟 Мечты и цели', 'feat_dreams')
+      .text('📆 Планировщик', 'feat_planner').row()
+      .text('📹 Конференции', 'feat_conf')
+      .text('👥 Группы', 'feat_groups').row()
       .text('🎤 Голос', 'feat_voice')
-      .text('📱 WebApp', 'feat_webapp').row()
+      .text('⏰ Напоминания', 'feat_reminders').row()
       .text('🏠 Главная', 'main_menu');
     if (webappUrl) kb.url('📖 Полное руководство', `${webappUrl}/guide`);
 
     await ctx.reply(
-      `🌟 <b>Alpha Planner — все возможности</b>\n\n` +
-      `Выбери раздел чтобы узнать подробнее:\n\n` +
-      `🧠 AI-секретарь — умный помощник на Groq\n` +
-      `📋 Задачи — планирование и приоритеты\n` +
-      `⏰ Напоминания — никогда не забудешь\n` +
+      `🌟 <b>Alpha Planner v3.1 — все возможности</b>\n\n` +
+      `🧠 AI-секретарь — умный помощник на базе AI\n` +
+      `🤖 AI инструменты — картинки, озвучка, видео, анализ фото\n` +
+      `📋 Задачи — планирование с приоритетами\n` +
       `📊 Привычки — трекер со стриками\n` +
-      `👥 Группы — совместное планирование\n` +
-      `📹 Конференции — видеозвонки внутри Telegram\n` +
-      `🎤 Голос — распознавание речи\n` +
-      `📱 WebApp — удобный интерфейс`,
+      `🌟 Мечты и цели — AI-коуч для достижения целей\n` +
+      `📆 Планировщик — планы на день/неделю/месяц/год\n` +
+      `📹 Конференции — видеозвонки в браузере\n` +
+      `👥 Группы — командные задачи и созвоны\n` +
+      `🎤 Голос — распознавание голосовых сообщений\n` +
+      `⏰ Напоминания — будильники и эскалация`,
       { parse_mode: 'HTML', reply_markup: kb }
     );
   }
