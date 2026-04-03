@@ -5,7 +5,8 @@
   <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
   <title>Alpha Planner</title>
   <script src="https://telegram.org/js/telegram-web-app.js"></script>
-  <link rel="stylesheet" href="style.css">
+  <script src="/socket.io/socket.io.js"></script>
+  <link rel="stylesheet" href="style.css?v=2.1">
 </head>
 <body>
   <div id="app">
@@ -24,6 +25,7 @@
       <button class="tab" data-tab="tomorrow">Завтра</button>
       <button class="tab" data-tab="week">Неделя</button>
       <button class="tab" data-tab="all">Все</button>
+      <button class="tab" data-tab="conf" id="tabConf">📹</button>
     </nav>
 
     <!-- Quick Add -->
@@ -140,6 +142,137 @@
     </div>
   </div>
 
-  <script src="app.js"></script>
+  <!-- Conference Panel (вкладка 📹) -->
+  <div id="confPanel" class="conf-panel" style="display:none">
+
+    <!-- Lobby (список комнат) -->
+    <div id="confLobby">
+      <div class="conf-lobby-header">
+        <h2>📹 Видеоконференции</h2>
+        <button class="btn btn-primary" id="btnNewRoom">➕ Создать</button>
+      </div>
+      <div id="confRoomsList" class="conf-rooms-list">
+        <div class="empty-state">Загрузка...</div>
+      </div>
+      <div class="conf-join-row">
+        <input type="text" id="confJoinId" class="input" placeholder="Введите ID комнаты" maxlength="8">
+        <button class="btn btn-secondary" id="btnJoinRoom">Войти</button>
+      </div>
+    </div>
+
+    <!-- Create room modal inline -->
+    <div id="confCreateModal" class="conf-create-modal" style="display:none">
+      <div class="modal" style="max-width:360px">
+        <div class="modal-header">
+          <h2>Новая комната</h2>
+          <button class="modal-close" id="confCreateClose">&times;</button>
+        </div>
+        <div class="modal-body">
+          <input type="text" id="confRoomName" class="input" placeholder="Название комнаты" maxlength="50">
+        </div>
+        <div class="modal-footer">
+          <button class="btn btn-primary" id="btnCreateConfirm">Создать</button>
+        </div>
+      </div>
+    </div>
+
+    <!-- Conference Room UI -->
+    <div id="confRoom" style="display:none; flex-direction:column; height:100%">
+      <div class="conf-room-header">
+        <button id="btnLeaveRoom" class="btn-icon-back">←</button>
+        <div style="flex:1;text-align:center">
+          <div id="confRoomTitle" style="font-weight:600;font-size:14px">Комната</div>
+          <div id="conf-participants-count" style="font-size:11px;color:var(--hint)">0 участников</div>
+        </div>
+        <div style="display:flex;gap:6px">
+          <button id="btnInviteRoom" class="btn-icon-sm" title="Пригласить">🔗</button>
+          <button id="btnToggleParticipants" class="btn-icon-sm" title="Участники">👥</button>
+          <button id="btnToggleChat" class="btn-icon-sm" title="Чат">💬</button>
+        </div>
+      </div>
+
+      <!-- Video Grid — IDs match ConferenceManager expectations -->
+      <div id="video-grid" class="video-grid">
+        <div id="local-video-container" class="video-container local">
+          <video id="local-video" autoplay muted playsinline></video>
+          <div class="video-label">
+            <span id="localVideoName">Вы</span>
+            <span class="video-muted-icon" id="localMutedIcon">🔇</span>
+          </div>
+        </div>
+      </div>
+
+      <!-- Controls -->
+      <div class="conf-controls">
+        <button id="btnToggleMic" class="ctrl-btn muted" title="Микрофон">🎤</button>
+        <button id="btnToggleVideo" class="ctrl-btn" title="Камера">📷</button>
+        <button id="btnToggleScreen" class="ctrl-btn" title="Экран">🖥</button>
+        <button id="btnRaiseHand" class="ctrl-btn" title="Поднять руку">✋</button>
+        <button id="btnLeaveConf" class="ctrl-btn danger" title="Выйти">📵</button>
+      </div>
+
+      <!-- Participants Sidebar -->
+      <div id="participantsSidebar" class="conf-sidebar" style="display:none">
+        <div class="sidebar-header">
+          <span>👥 Участники</span>
+          <button onclick="document.getElementById('participantsSidebar').style.display='none'">&times;</button>
+        </div>
+        <div id="participantsList"></div>
+      </div>
+
+      <!-- Chat Sidebar -->
+      <div id="chatSidebar" class="conf-sidebar" style="display:none">
+        <div class="sidebar-header">
+          <span>💬 Чат</span>
+          <button onclick="document.getElementById('chatSidebar').style.display='none'">&times;</button>
+        </div>
+        <div id="confChatMessages" class="conf-chat-messages"></div>
+        <div class="conf-chat-input">
+          <input type="text" id="confChatInput" class="input" placeholder="Сообщение...">
+          <button id="btnSendConfMsg" class="btn btn-primary">→</button>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- Guest Name Modal -->
+  <div id="guestNameModal" style="display:none">
+    <div style="background:#1e1e2e;border-radius:16px;padding:24px;width:100%;max-width:360px;text-align:center">
+      <div style="font-size:48px;margin-bottom:12px">📹</div>
+      <h2 style="color:#fff;margin:0 0 8px;font-size:20px">Присоединиться к конференции</h2>
+      <p style="color:#888;font-size:13px;margin:0 0 16px">Введите ваше имя</p>
+      <input type="text" id="guestNameInput" placeholder="Ваше имя" style="width:100%;padding:12px;border-radius:10px;border:1px solid #333;background:#111;color:#fff;font-size:16px;text-align:center;outline:none;box-sizing:border-box;margin-bottom:12px">
+      <button id="guestNameSubmit" style="width:100%;padding:12px;background:#7c4dff;color:#fff;border:none;border-radius:10px;font-size:16px;font-weight:600;cursor:pointer">Войти</button>
+    </div>
+  </div>
+
+  <script src="crypto.js"></script>
+  <script src="conference.js"></script>
+  <script src="app.js?v=2.5"></script>
+  <script src="conf-ui.js?v=2.6"></script>
+  <script>
+  // Failsafe: if ?conf= in URL, force switch to conference tab
+  (function(){
+    var cp = new URLSearchParams(window.location.search).get('conf');
+    if (!cp) return;
+    console.log('[CONF-FAILSAFE] conf param detected:', cp);
+    function forceConf() {
+      try {
+        var qa = document.querySelector('.quick-add'); if(qa) qa.style.display='none';
+        var tl = document.getElementById('taskList'); if(tl) tl.style.display='none';
+        var sb = document.getElementById('statsBar'); if(sb) sb.style.display='none';
+        var cp2 = document.getElementById('confPanel');
+        if(cp2) { cp2.style.display='flex'; cp2.style.flexDirection='column'; cp2.style.flex='1'; }
+        document.querySelectorAll('.tab').forEach(function(t){t.classList.remove('active')});
+        var tc = document.getElementById('tabConf'); if(tc) tc.classList.add('active');
+      } catch(e) { console.error('[CONF-FAILSAFE] error:', e); }
+    }
+    forceConf();
+    setTimeout(forceConf, 50);
+    setTimeout(forceConf, 200);
+    setTimeout(forceConf, 500);
+    setTimeout(forceConf, 1000);
+  })();
+  </script>
 </body>
 </html>

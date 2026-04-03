@@ -120,20 +120,25 @@ function getSystemPrompt(user) {
     business: `Ты общаешься чётко и профессионально. Краткие ответы по делу. Обращаешься на "вы". Минимум эмодзи, максимум пользы.`,
     coach: `Ты — энергичный коуч-мотиватор. Толкаешь вперёд, хвалишь за достижения, мягко подталкиваешь при лени. Используешь мотивирующие фразы.`,
     gentle: `Ты общаешься мягко и заботливо. Не давишь, не торопишь. Предлагаешь, а не приказываешь. Заботишься о самочувствии пользователя.`,
+    bold: `Ты дерзкий и с характером. Отвечаешь с сарказмом и иронией, подкалываешь, но по-доброму. Если человек ленится — троллишь. Не сюсюкаешь. Говоришь как есть.`,
+    patsansky: `Ты общаешься по-пацански, как кореш с района. Используешь сленг: "братан", "чётко", "базар", "погнали", "нормально так". Без понтов, по-простому. Поддерживаешь как свой пацан.`,
+    brash: `Ты наглый и напористый. Говоришь в лоб, без церемоний. Не нянчишься. Если задача не сделана — давишь. Если сделана — скупо хвалишь. Никаких соплей.`,
+    partner: `Ты общаешься на равных, как деловой партнёр. Уважительный тон, обращение на "ты" но без панибратства. Делишься мнением, предлагаешь варианты. Ценишь время собеседника.`,
   };
 
-  return `Ты — ${name}, персональный AI-секретарь и планировщик. ${styleInstructions[style] || styleInstructions.friendly}
+  return `Ты — ${name}, персональный AI-секретарь и умный помощник. ${styleInstructions[style] || styleInstructions.friendly}
 
-ТВОИ ВОЗМОЖНОСТИ:
-1. Создавать задачи (с датой, временем, приоритетом, категорией)
-2. Переносить задачи на другую дату
-3. Завершать задачи
-4. Удалять задачи
-5. Создавать привычки
-6. Составлять план дня
-7. Давать советы по продуктивности
-8. Запоминать важную информацию о пользователе
-9. Отвечать на вопросы и вести диалог
+ТЫ УМЕЕШЬ ВСЁ:
+- Планировать день, создавать/переносить/завершать задачи
+- Создавать видеоконференции и созвоны
+- Отслеживать привычки
+- Отвечать на ЛЮБЫЕ вопросы (наука, бизнес, технологии, жизнь, здоровье, финансы, кулинария, путешествия)
+- Давать советы, считать, переводить, объяснять
+- Запоминать важное о пользователе
+- Помогать с текстами, идеями, планами
+- Мотивировать и поддерживать
+
+Ты не просто планировщик — ты универсальный AI-ассистент. Если пользователь спрашивает что-то — ответь максимально полно и полезно.
 
 ФОРМАТ КОМАНД (вставляй в ответ когда нужно выполнить действие):
 [TASK_CREATE] title | date(YYYY-MM-DD) | time(HH:MM или null) | priority(1-4) | category_id(число или null) [/TASK_CREATE]
@@ -141,7 +146,12 @@ function getSystemPrompt(user) {
 [TASK_MOVE] id | date(YYYY-MM-DD) [/TASK_MOVE]
 [TASK_DELETE] id [/TASK_DELETE]
 [HABIT_CREATE] title | emoji [/HABIT_CREATE]
+[HABIT_DONE] название_привычки [/HABIT_DONE]
+[SHOW_TASKS] today|tomorrow|week|all|overdue [/SHOW_TASKS]
+[SHOW_HABITS] [/SHOW_HABITS]
+[SHOW_STATS] [/SHOW_STATS]
 [MEMORY] тип:содержание [/MEMORY]
+[CONF_CREATE] название конференции [/CONF_CREATE]
 
 ПРАВИЛА:
 - ВСЕГДА отвечай текстом пользователю + команды если нужны действия
@@ -149,11 +159,18 @@ function getSystemPrompt(user) {
 - Если нет даты — ставь сегодня
 - Если говорит "завтра" — вычисли дату
 - Если просит перенести — используй [TASK_MOVE]
-- Если завершает — [TASK_DONE]
+- Если завершает задачу — [TASK_DONE]
+- Если просит показать задачи ("что у меня сегодня", "покажи список") — [SHOW_TASKS] today [/SHOW_TASKS]
+- Если просит показать привычки — [SHOW_HABITS] [/SHOW_HABITS]
+- Если просит итог/статистику дня — [SHOW_STATS] [/SHOW_STATS]
+- Если отмечает привычку ("зарядку сделал", "выполнил пробежку") — [HABIT_DONE] название [/HABIT_DONE]
+- Если просит создать конференцию/созвон/звонок/встречу/видеозвонок — ОБЯЗАТЕЛЬНО используй [CONF_CREATE] название [/CONF_CREATE]. У нас СВОЯ встроенная система видеоконференций! НИКОГДА не предлагай Google Meet, Zoom, Skype или другие внешние сервисы. Всегда создавай через [CONF_CREATE].
 - Запоминай важное через [MEMORY] (предпочтения:..., факт:..., привычка:...)
+- Если пользователь задаёт вопрос (не задачу) — отвечай подробно и полезно как умный ассистент
 - Отвечай на русском
 - Будь кратким но полезным
-- НЕ используй markdown разметку (**, ##), используй plain text с эмодзи`;
+- НЕ используй markdown разметку (**, ##), используй plain text с эмодзи
+- НИКОГДА не давай ссылки на внешние сервисы (Google, Zoom, Skype) для конференций — у нас свой сервис`;
 }
 
 // ============ Парсинг AI-команд ============
@@ -220,8 +237,8 @@ function parseAndExecuteCommands(response, user) {
   }
 
   // HABIT_CREATE
-  const habits = [...response.matchAll(/\[HABIT_CREATE\]\s*(.+?)\s*\[\/HABIT_CREATE\]/g)];
-  for (const m of habits) {
+  const habitCreates = [...response.matchAll(/\[HABIT_CREATE\]\s*(.+?)\s*\[\/HABIT_CREATE\]/g)];
+  for (const m of habitCreates) {
     const parts = m[1].split('|').map(s => s.trim());
     const title = parts[0];
     const emoji = parts[1] || '✅';
@@ -229,6 +246,35 @@ function parseAndExecuteCommands(response, user) {
       const habit = db.createHabit(user.id, title, emoji);
       results.push({ type: 'habit', habit });
     }
+  }
+
+  // HABIT_DONE — отметить привычку по названию
+  const habitDones = [...response.matchAll(/\[HABIT_DONE\]\s*(.+?)\s*\[\/HABIT_DONE\]/g)];
+  for (const m of habitDones) {
+    const nameQuery = m[1].trim().toLowerCase();
+    const allHabits = db.getUserHabits(user.id);
+    const today = todayStr(user.timezone);
+    const habit = allHabits.find(h => h.title.toLowerCase().includes(nameQuery) || nameQuery.includes(h.title.toLowerCase()));
+    if (habit) {
+      db.logHabit(habit.id, today);
+      results.push({ type: 'habit_done', habit });
+    }
+  }
+
+  // SHOW_TASKS — показать список задач
+  const showTasksMatch = [...response.matchAll(/\[SHOW_TASKS\]\s*(\w+)\s*\[\/SHOW_TASKS\]/g)];
+  for (const m of showTasksMatch) {
+    results.push({ type: 'show_tasks', mode: m[1] || 'today' });
+  }
+
+  // SHOW_HABITS — показать привычки
+  if (response.includes('[SHOW_HABITS]')) {
+    results.push({ type: 'show_habits' });
+  }
+
+  // SHOW_STATS — показать статистику
+  if (response.includes('[SHOW_STATS]')) {
+    results.push({ type: 'show_stats' });
   }
 
   // MEMORY
@@ -240,6 +286,20 @@ function parseAndExecuteCommands(response, user) {
     results.push({ type: 'memory', content: rest.join(':').trim() });
   }
 
+  // CONF_CREATE
+  const confCreates = [...response.matchAll(/\[CONF_CREATE\]\s*(.+?)\s*\[\/CONF_CREATE\]/g)];
+  for (const m of confCreates) {
+    const title = m[1].trim() || 'Конференция';
+    results.push({ type: 'conf_create', title });
+  }
+
+  // Fallback: AI gave Google/Zoom link instead of [CONF_CREATE] — auto-create conf
+  if (confCreates.length === 0 && /meet\.google\.com|zoom\.us|skype\.com/i.test(response)) {
+    results.push({ type: 'conf_create', title: 'Конференция' });
+    // Strip external links from response
+    response = response.replace(/https?:\/\/(meet\.google\.com|zoom\.us|[^\s]*skype\.com)[^\s]*/gi, '');
+  }
+
   // Чистим ответ от команд
   let clean = response
     .replace(/\[TASK_CREATE\][\s\S]*?\[\/TASK_CREATE\]/g, '')
@@ -247,7 +307,18 @@ function parseAndExecuteCommands(response, user) {
     .replace(/\[TASK_MOVE\][\s\S]*?\[\/TASK_MOVE\]/g, '')
     .replace(/\[TASK_DELETE\][\s\S]*?\[\/TASK_DELETE\]/g, '')
     .replace(/\[HABIT_CREATE\][\s\S]*?\[\/HABIT_CREATE\]/g, '')
+    .replace(/\[HABIT_DONE\][\s\S]*?\[\/HABIT_DONE\]/g, '')
+    .replace(/\[SHOW_TASKS\][\s\S]*?\[\/SHOW_TASKS\]/g, '')
+    .replace(/\[SHOW_HABITS\][^\[]*/g, '')
+    .replace(/\[SHOW_STATS\][^\[]*/g, '')
     .replace(/\[MEMORY\][\s\S]*?\[\/MEMORY\]/g, '')
+    .replace(/\[CONF_CREATE\][\s\S]*?\[\/CONF_CREATE\]/g, '')
+    // Убираем символы которые Groq иногда генерирует вместо форматирования
+    .replace(/[◆◇▲▼►◄●○■□▪▫◉◎◈◊✦✧⬥⬦⬧⬨◼◻◾◽▸▹▶▷]/g, '')
+    // Убираем markdown разметку если AI всё равно её добавил
+    .replace(/\*\*(.+?)\*\*/gs, '$1')
+    .replace(/\*(.+?)\*/gs, '$1')
+    .replace(/__(.+?)__/gs, '$1')
     .replace(/\n{3,}/g, '\n\n')
     .trim();
 
@@ -261,6 +332,7 @@ function setupConversationalAI(bot, groqKey) {
 
     // Fallback без AI — простое создание задач
     bot.on('message:text', async (ctx) => {
+      if (ctx.chat?.type !== 'private') return; // только в личке
       const user = db.ensureUser(ctx.from);
       if (!user.onboarded || ctx.message.text.startsWith('/')) return;
       // Создаём задачу из текста
@@ -283,6 +355,7 @@ function setupConversationalAI(bot, groqKey) {
 
   // ====== С AI ======
   bot.on('message:text', async (ctx) => {
+    if (ctx.chat?.type !== 'private') return; // только в личке
     const user = db.ensureUser(ctx.from);
     const text = ctx.message.text.trim();
     if (!user.onboarded || text.startsWith('/')) return;
@@ -317,28 +390,63 @@ function setupConversationalAI(bot, groqKey) {
 
       // Добавляем инфо о действиях
       if (actions.length > 0) {
-        reply += '\n';
+        const actionLines = [];
         for (const a of actions) {
-          if (a.type === 'created') reply += `\n✅ Создано: <b>${escapeHtml(a.task.title)}</b> 📅${formatDateRu(a.task.due_date)}${a.task.due_time ? ' ⏰' + a.task.due_time : ''} [#${a.task.id}]`;
-          if (a.type === 'done') reply += `\n✅ Завершено: ${escapeHtml(a.task.title)}`;
-          if (a.type === 'moved') reply += `\n📅 Перенесено: ${escapeHtml(a.task.title)} → ${formatDateRu(a.date)}`;
-          if (a.type === 'deleted') reply += `\n🗑 Удалено: ${escapeHtml(a.task.title)}`;
-          if (a.type === 'habit') reply += `\n📊 Привычка: ${a.habit.emoji} ${escapeHtml(a.habit.title)}`;
+          if (a.type === 'created') actionLines.push(`✅ <b>${escapeHtml(a.task.title)}</b> 📅${formatDateRu(a.task.due_date)}${a.task.due_time ? ' ⏰' + a.task.due_time : ''}`);
+          if (a.type === 'done') actionLines.push(`✅ Готово: ${escapeHtml(a.task.title)}`);
+          if (a.type === 'moved') actionLines.push(`📅 Перенесено: ${escapeHtml(a.task.title)} → ${formatDateRu(a.date)}`);
+          if (a.type === 'deleted') actionLines.push(`🗑 Удалено: ${escapeHtml(a.task.title)}`);
+          if (a.type === 'habit') actionLines.push(`📊 Привычка создана: ${a.habit.emoji} ${escapeHtml(a.habit.title)}`);
+          if (a.type === 'habit_done') actionLines.push(`✅ ${a.habit.emoji} ${escapeHtml(a.habit.title)} — отмечено!`);
+          if (a.type === 'conf_create') {
+            try {
+              const room = db.createConfRoom(a.title, user.id, null);
+              a.room = room;
+              actionLines.push(`📹 Конференция создана: <b>${escapeHtml(a.title)}</b>\n🔑 ID: <code>${room.id}</code>`);
+            } catch (e) { actionLines.push('❌ Не удалось создать конференцию'); }
+          }
         }
+        if (actionLines.length > 0) reply += '\n\n' + actionLines.join('\n');
       }
 
-      // Кнопки для созданных задач
+      // Строим inline кнопки
       const kb = new InlineKeyboard();
       const createdTasks = actions.filter(a => a.type === 'created');
-      if (createdTasks.length === 1) {
-        const t = createdTasks[0].task;
-        kb.text('✅', `done_${t.id}`).text('⏰', `task_remind_${t.id}`)
-          .text('📅', `task_reschedule_${t.id}`).text('🗑', `task_delete_${t.id}`);
+      const showAction = actions.find(a => a.type === 'show_tasks');
+      const showHabits = actions.find(a => a.type === 'show_habits');
+      const showStats = actions.find(a => a.type === 'show_stats');
+
+      // Кнопки на каждую созданную задачу
+      createdTasks.forEach(({ task: t }) => {
+        const short = t.title.length > 20 ? t.title.slice(0, 20) + '…' : t.title;
+        kb.text(`✅ ${short}`, `done_${t.id}`)
+          .text('⏰', `task_remind_${t.id}`)
+          .text('📅', `task_reschedule_${t.id}`)
+          .text('🗑', `task_delete_${t.id}`).row();
+      });
+
+      // Кнопки "показать" из AI-команд
+      if (showAction) {
+        const modeLabels = { today: '📋 Сегодня', tomorrow: '📅 Завтра', week: '📆 Неделя', all: '📋 Все', overdue: '⚠️ Просроченные' };
+        kb.text(modeLabels[showAction.mode] || '📋 Задачи', `show_${showAction.mode}`).row();
       }
+      if (showHabits) kb.text('📊 Привычки', 'habits').row();
+      if (showStats) kb.text('☀️ Итог дня', 'stats_today').row();
+
+      // Кнопки для созданных конференций
+      const confActions = actions.filter(a => a.type === 'conf_create' && a.room);
+      for (const a of confActions) {
+        const webappUrl = process.env.WEBAPP_URL || '';
+        if (webappUrl) kb.webApp('📹 Войти в конференцию', `${webappUrl}?conf=${a.room.id}`).row();
+        kb.text('🔗 Поделиться', `conf_share_${a.room.id}`).row();
+      }
+
+      // Навигационные кнопки после ответа (всегда)
+      if (!showAction) kb.text('📋 Сегодня', 'today').text('📅 Завтра', 'show_tomorrow');
 
       await ctx.api.editMessageText(ctx.chat.id, thinkingMsg.message_id, reply, {
         parse_mode: 'HTML',
-        reply_markup: kb.inline_keyboard.length ? kb : undefined,
+        reply_markup: kb.inline_keyboard.flat().length ? kb : undefined,
       });
 
     } catch (e) {

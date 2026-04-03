@@ -1,4 +1,8 @@
 node_modules/
+planner.db
+planner.db-journal
 .env
-*.db
 *.log
+/tmp/
+planner.db-shm
+planner.db-wal

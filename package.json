@@ -22,9 +22,13 @@
   "dependencies": {
     "better-sqlite3": "^12.8.0",
     "dotenv": "^17.3.1",
+    "edge-tts": "^1.0.1",
     "express": "^5.2.1",
     "grammy": "^1.41.1",
     "luxon": "^3.7.2",
-    "node-cron": "^4.2.1"
+    "multer": "^2.1.1",
+    "node-cron": "^4.2.1",
+    "socket.io": "^4.8.3",
+    "uuid": "^9.0.1"
   }
 }

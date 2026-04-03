@@ -1,0 +1,857 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Alpha Planner — Руководство пользователя</title>
+  <style>
+    :root {
+      --bg: #0f0f1a;
+      --card: #1a1a2e;
+      --card2: #16213e;
+      --accent: #7c4dff;
+      --accent2: #00b4d8;
+      --accent3: #ff6b6b;
+      --text: #e8e8f0;
+      --muted: #8888aa;
+      --border: rgba(255,255,255,0.08);
+      --success: #2ed573;
+      --warning: #ffa502;
+    }
+    * { margin: 0; padding: 0; box-sizing: border-box; }
+    html { scroll-behavior: smooth; }
+    body {
+      font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+      background: var(--bg);
+      color: var(--text);
+      line-height: 1.6;
+      font-size: 15px;
+    }
+
+    /* ── Hero ── */
+    .hero {
+      background: linear-gradient(135deg, #1a1a2e 0%, #0f3460 50%, #16213e 100%);
+      padding: 60px 20px 50px;
+      text-align: center;
+      position: relative;
+      overflow: hidden;
+    }
+    .hero::before {
+      content: '';
+      position: absolute; inset: 0;
+      background: radial-gradient(circle at 30% 50%, rgba(124,77,255,0.2) 0%, transparent 60%),
+                  radial-gradient(circle at 70% 30%, rgba(0,180,216,0.15) 0%, transparent 60%);
+    }
+    .hero-inner { position: relative; max-width: 700px; margin: 0 auto; }
+    .hero-badge {
+      display: inline-block;
+      background: rgba(124,77,255,0.2);
+      border: 1px solid rgba(124,77,255,0.4);
+      color: #b39ddb;
+      padding: 4px 14px;
+      border-radius: 20px;
+      font-size: 12px;
+      letter-spacing: 1px;
+      text-transform: uppercase;
+      margin-bottom: 16px;
+    }
+    .hero h1 { font-size: clamp(28px,6vw,48px); font-weight: 800; margin-bottom: 12px; }
+    .hero h1 span { color: var(--accent); }
+    .hero p { color: var(--muted); font-size: 16px; max-width: 500px; margin: 0 auto 28px; }
+    .hero-chips { display: flex; flex-wrap: wrap; gap: 8px; justify-content: center; }
+    .chip {
+      background: rgba(255,255,255,0.06);
+      border: 1px solid var(--border);
+      padding: 5px 14px;
+      border-radius: 20px;
+      font-size: 13px;
+      color: var(--muted);
+    }
+
+    /* ── Nav ── */
+    .nav {
+      position: sticky; top: 0; z-index: 100;
+      background: rgba(15,15,26,0.95);
+      backdrop-filter: blur(12px);
+      border-bottom: 1px solid var(--border);
+      padding: 0 20px;
+      overflow-x: auto;
+    }
+    .nav-inner {
+      display: flex; gap: 0; max-width: 900px; margin: 0 auto;
+      white-space: nowrap;
+    }
+    .nav a {
+      display: inline-block;
+      padding: 14px 16px;
+      color: var(--muted);
+      text-decoration: none;
+      font-size: 13px;
+      font-weight: 500;
+      border-bottom: 2px solid transparent;
+      transition: all .2s;
+    }
+    .nav a:hover { color: var(--text); border-color: var(--accent); }
+
+    /* ── Layout ── */
+    .container { max-width: 900px; margin: 0 auto; padding: 0 20px; }
+    .section { padding: 56px 0; border-bottom: 1px solid var(--border); }
+    .section:last-child { border-bottom: none; }
+    .section-header { display: flex; align-items: center; gap: 12px; margin-bottom: 32px; }
+    .section-icon {
+      width: 44px; height: 44px;
+      background: linear-gradient(135deg, var(--accent), var(--accent2));
+      border-radius: 12px;
+      display: flex; align-items: center; justify-content: center;
+      font-size: 22px; flex-shrink: 0;
+    }
+    .section-header h2 { font-size: 26px; font-weight: 700; }
+    .section-header p { color: var(--muted); font-size: 14px; margin-top: 2px; }
+
+    /* ── Cards ── */
+    .cards { display: grid; grid-template-columns: repeat(auto-fill, minmax(260px, 1fr)); gap: 16px; margin-bottom: 28px; }
+    .card {
+      background: var(--card);
+      border: 1px solid var(--border);
+      border-radius: 16px;
+      padding: 20px;
+    }
+    .card-icon { font-size: 28px; margin-bottom: 12px; }
+    .card h3 { font-size: 16px; font-weight: 600; margin-bottom: 6px; }
+    .card p { color: var(--muted); font-size: 13px; line-height: 1.5; }
+
+    /* ── Steps ── */
+    .steps { display: flex; flex-direction: column; gap: 16px; }
+    .step {
+      display: flex; gap: 16px; align-items: flex-start;
+      background: var(--card);
+      border: 1px solid var(--border);
+      border-radius: 14px;
+      padding: 18px 20px;
+    }
+    .step-num {
+      width: 32px; height: 32px; flex-shrink: 0;
+      background: linear-gradient(135deg, var(--accent), #9c27b0);
+      border-radius: 50%;
+      display: flex; align-items: center; justify-content: center;
+      font-weight: 700; font-size: 14px;
+    }
+    .step-body h4 { font-size: 15px; font-weight: 600; margin-bottom: 4px; }
+    .step-body p { color: var(--muted); font-size: 13px; }
+
+    /* ── Commands table ── */
+    .cmds { display: flex; flex-direction: column; gap: 8px; }
+    .cmd {
+      display: flex; align-items: baseline; gap: 12px;
+      background: var(--card2);
+      border: 1px solid var(--border);
+      border-radius: 10px;
+      padding: 10px 16px;
+    }
+    .cmd code {
+      font-family: 'Courier New', monospace;
+      font-size: 13px;
+      color: var(--accent2);
+      background: rgba(0,180,216,0.1);
+      padding: 2px 8px;
+      border-radius: 6px;
+      white-space: nowrap;
+      flex-shrink: 0;
+    }
+    .cmd span { color: var(--muted); font-size: 13px; }
+
+    /* ── Feature blocks ── */
+    .feature-block {
+      background: var(--card);
+      border: 1px solid var(--border);
+      border-radius: 16px;
+      padding: 24px;
+      margin-bottom: 16px;
+    }
+    .feature-block h3 { font-size: 17px; font-weight: 600; margin-bottom: 12px; display: flex; align-items: center; gap: 8px; }
+    .feature-block ul { list-style: none; display: flex; flex-direction: column; gap: 7px; }
+    .feature-block ul li { color: var(--muted); font-size: 14px; padding-left: 20px; position: relative; }
+    .feature-block ul li::before { content: '→'; position: absolute; left: 0; color: var(--accent); }
+    .feature-block ul li strong { color: var(--text); }
+
+    /* ── Example bubbles ── */
+    .examples { display: flex; flex-direction: column; gap: 10px; margin-top: 16px; }
+    .example {
+      display: flex; align-items: flex-start; gap: 10px;
+    }
+    .example-user, .example-bot {
+      max-width: 75%;
+      padding: 10px 14px;
+      border-radius: 14px;
+      font-size: 13px;
+      line-height: 1.5;
+    }
+    .example-user {
+      background: rgba(124,77,255,0.2);
+      border: 1px solid rgba(124,77,255,0.3);
+      margin-left: auto;
+      text-align: right;
+    }
+    .example-bot {
+      background: var(--card2);
+      border: 1px solid var(--border);
+    }
+    .example-avatar {
+      width: 28px; height: 28px; border-radius: 50%;
+      display: flex; align-items: center; justify-content: center;
+      font-size: 14px; flex-shrink: 0;
+      background: var(--card);
+      border: 1px solid var(--border);
+    }
+    .example-label { font-size: 11px; color: var(--muted); margin-bottom: 3px; }
+
+    /* ── Priority pills ── */
+    .priorities { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 12px; }
+    .pri { padding: 5px 14px; border-radius: 20px; font-size: 13px; font-weight: 500; }
+    .pri-1 { background: rgba(255,75,75,0.15); color: #ff6b6b; border: 1px solid rgba(255,75,75,0.3); }
+    .pri-2 { background: rgba(255,165,0,0.15); color: #ffa502; border: 1px solid rgba(255,165,0,0.3); }
+    .pri-3 { background: rgba(255,214,0,0.15); color: #ffd700; border: 1px solid rgba(255,214,0,0.3); }
+    .pri-4 { background: rgba(46,213,115,0.15); color: #2ed573; border: 1px solid rgba(46,213,115,0.3); }
+
+    /* ── Two-col ── */
+    .two-col { display: grid; grid-template-columns: 1fr 1fr; gap: 16px; }
+    @media (max-width: 600px) { .two-col { grid-template-columns: 1fr; } }
+
+    /* ── Tip box ── */
+    .tip {
+      background: rgba(124,77,255,0.08);
+      border: 1px solid rgba(124,77,255,0.25);
+      border-radius: 12px;
+      padding: 14px 18px;
+      font-size: 13px;
+      color: var(--muted);
+      margin-top: 16px;
+      display: flex;
+      gap: 10px;
+    }
+    .tip-icon { font-size: 18px; flex-shrink: 0; }
+
+    /* ── Badge ── */
+    .badge {
+      display: inline-flex; align-items: center;
+      background: rgba(46,213,115,0.1);
+      border: 1px solid rgba(46,213,115,0.3);
+      color: var(--success);
+      padding: 3px 10px;
+      border-radius: 20px;
+      font-size: 11px;
+      font-weight: 600;
+      margin-left: 8px;
+    }
+
+    /* ── Conf controls ── */
+    .ctrl-row { display: flex; flex-wrap: wrap; gap: 10px; margin-top: 12px; }
+    .ctrl {
+      background: var(--card2);
+      border: 1px solid var(--border);
+      border-radius: 10px;
+      padding: 10px 16px;
+      display: flex; align-items: center; gap: 8px;
+      font-size: 13px;
+    }
+    .ctrl-emoji { font-size: 20px; }
+
+    /* ── Footer ── */
+    footer {
+      text-align: center;
+      padding: 40px 20px;
+      color: var(--muted);
+      font-size: 13px;
+      border-top: 1px solid var(--border);
+    }
+    footer a { color: var(--accent); text-decoration: none; }
+  </style>
+</head>
+<body>
+
+<!-- HERO -->
+<div class="hero">
+  <div class="hero-inner">
+    <div class="hero-badge">📖 Руководство пользователя</div>
+    <h1>Alpha <span>Planner</span></h1>
+    <p>AI-секретарь, планировщик задач, трекер привычек и видеоконференции — всё в одном Telegram-боте</p>
+    <div class="hero-chips">
+      <span class="chip">🧠 Groq AI</span>
+      <span class="chip">🎤 Голосовые</span>
+      <span class="chip">👥 Группы</span>
+      <span class="chip">📹 WebRTC</span>
+      <span class="chip">⏰ Напоминания</span>
+      <span class="chip">📊 Привычки</span>
+    </div>
+  </div>
+</div>
+
+<!-- NAV -->
+<nav class="nav">
+  <div class="nav-inner">
+    <a href="#quickstart">🚀 Старт</a>
+    <a href="#ai">🧠 AI</a>
+    <a href="#tasks">📋 Задачи</a>
+    <a href="#reminders">⏰ Напоминания</a>
+    <a href="#habits">📊 Привычки</a>
+    <a href="#groups">👥 Группы</a>
+    <a href="#conf">📹 Конференции</a>
+    <a href="#settings">⚙️ Настройки</a>
+    <a href="#commands">📜 Команды</a>
+  </div>
+</nav>
+
+<div class="container">
+
+  <!-- QUICKSTART -->
+  <section class="section" id="quickstart">
+    <div class="section-header">
+      <div class="section-icon">🚀</div>
+      <div>
+        <h2>Быстрый старт</h2>
+        <p>Начни работу за 2 минуты</p>
+      </div>
+    </div>
+
+    <div class="steps">
+      <div class="step">
+        <div class="step-num">1</div>
+        <div class="step-body">
+          <h4>Открой бота и нажми /start</h4>
+          <p>Запускается онбординг — бот познакомится с тобой и настроится под твой стиль.</p>
+        </div>
+      </div>
+      <div class="step">
+        <div class="step-num">2</div>
+        <div class="step-body">
+          <h4>Выбери имя секретаря</h4>
+          <p>Алиса, Макс, Джарвис, Ева, Сэм — или придумай своё. Это имя бот будет использовать в общении.</p>
+        </div>
+      </div>
+      <div class="step">
+        <div class="step-num">3</div>
+        <div class="step-body">
+          <h4>Выбери стиль общения</h4>
+          <p>😊 Дружелюбный · 💼 Деловой · 🔥 Коуч-мотиватор · 🌸 Мягкий. Влияет на тон всех ответов AI.</p>
+        </div>
+      </div>
+      <div class="step">
+        <div class="step-num">4</div>
+        <div class="step-body">
+          <h4>Расскажи о себе (необязательно)</h4>
+          <p>Чем больше знает AI — тем лучше помогает. Например: «Я предприниматель, работаю с командой, важны дедлайны.»</p>
+        </div>
+      </div>
+      <div class="step">
+        <div class="step-num">5</div>
+        <div class="step-body">
+          <h4>Создай первую задачу</h4>
+          <p>Просто напиши: <strong>«Завтра в 14:00 встреча с командой»</strong> — бот создаст задачу с датой и временем автоматически.</p>
+        </div>
+      </div>
+    </div>
+
+    <div class="tip">
+      <span class="tip-icon">💡</span>
+      <span>Главный принцип: просто <strong>общайся с ботом как с реальным секретарём</strong>. Пиши или говори — он разберётся сам.</span>
+    </div>
+  </section>
+
+  <!-- AI -->
+  <section class="section" id="ai">
+    <div class="section-header">
+      <div class="section-icon">🧠</div>
+      <div>
+        <h2>AI-секретарь</h2>
+        <p>Groq llama-3.3-70b — один из самых быстрых AI-ассистентов</p>
+      </div>
+    </div>
+
+    <div class="cards">
+      <div class="card">
+        <div class="card-icon">💬</div>
+        <h3>Диалог</h3>
+        <p>Пиши в свободной форме — AI понимает контекст и помнит последние 50 сообщений.</p>
+      </div>
+      <div class="card">
+        <div class="card-icon">🎤</div>
+        <h3>Голосовые</h3>
+        <p>Отправь голосовое — Whisper распознаёт речь, AI создаёт задачи или отвечает на вопрос.</p>
+      </div>
+      <div class="card">
+        <div class="card-icon">🧠</div>
+        <h3>Долгая память</h3>
+        <p>AI запоминает важные факты о тебе: привычки, предпочтения, рабочий ритм.</p>
+      </div>
+      <div class="card">
+        <div class="card-icon">📝</div>
+        <h3>Управление задачами</h3>
+        <p>Создаёт, переносит, завершает и удаляет задачи по команде в диалоге.</p>
+      </div>
+    </div>
+
+    <div class="feature-block">
+      <h3>📌 Что можно попросить</h3>
+      <ul>
+        <li><strong>«Завтра в 10 встреча»</strong> — создаст задачу с датой и временем</li>
+        <li><strong>«Что у меня на этой неделе?»</strong> — покажет список задач</li>
+        <li><strong>«Перенеси встречу на пятницу»</strong> — обновит дату</li>
+        <li><strong>«Разбей задачу по запуску сайта на шаги»</strong> — декомпозиция</li>
+        <li><strong>«Составь план на сегодня»</strong> — AI проанализирует задачи и предложит порядок</li>
+        <li><strong>«Как лучше бороться с прокрастинацией?»</strong> — советы по продуктивности</li>
+        <li><strong>«Добавь привычку делать зарядку»</strong> — создаст привычку</li>
+      </ul>
+    </div>
+
+    <div class="feature-block">
+      <h3>💬 Пример диалога</h3>
+      <div class="examples">
+        <div class="example">
+          <div style="flex:1"></div>
+          <div>
+            <div class="example-label" style="text-align:right">Ты</div>
+            <div class="example-user">Помоги спланировать мой день. У меня три важных задачи и звонок с клиентом в 15:00</div>
+          </div>
+          <div class="example-avatar">👤</div>
+        </div>
+        <div class="example">
+          <div class="example-avatar">🤖</div>
+          <div>
+            <div class="example-label">Алиса</div>
+            <div class="example-bot">Отлично! Давай разберём. До 15:00 у тебя 4 часа — предлагаю: срочные задачи с утра, потом подготовка к звонку. Напомнить за 15 минут до звонка? ✅</div>
+          </div>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <!-- TASKS -->
+  <section class="section" id="tasks">
+    <div class="section-header">
+      <div class="section-icon">📋</div>
+      <div>
+        <h2>Управление задачами</h2>
+        <p>Три способа создания, четыре приоритета, категории</p>
+      </div>
+    </div>
+
+    <div class="feature-block">
+      <h3>✍️ Способы создания задачи</h3>
+      <ul>
+        <li><strong>Текстом напрямую</strong> — напиши что угодно, бот распознает дату, время и приоритет</li>
+        <li><strong>Через AI-диалог</strong> — попроси секретаря создать задачу в свободной форме</li>
+        <li><strong>Голосовым</strong> — надиктуй, Whisper расшифрует</li>
+        <li><strong>Кнопкой «Добавить»</strong> — в меню /today или /tomorrow</li>
+        <li><strong>В WebApp</strong> — быстрое добавление через интерфейс</li>
+      </ul>
+    </div>
+
+    <div class="feature-block">
+      <h3>📅 Распознавание дат в тексте</h3>
+      <ul>
+        <li><strong>«сегодня», «завтра», «послезавтра»</strong> — автоматически</li>
+        <li><strong>«в понедельник», «в пятницу»</strong> — ближайший день недели</li>
+        <li><strong>«25.03», «25 марта»</strong> — конкретная дата</li>
+        <li><strong>«в 14:00», «в 9 утра»</strong> — время с авто-напоминанием</li>
+      </ul>
+    </div>
+
+    <div class="feature-block">
+      <h3>🏷 Приоритеты</h3>
+      <p style="color:var(--muted);font-size:13px;margin-bottom:10px">Укажи в конце текста: !1, !2, !3 или !4</p>
+      <div class="priorities">
+        <span class="pri pri-1">🔴 !1 Срочно</span>
+        <span class="pri pri-2">🟠 !2 Высокий</span>
+        <span class="pri pri-3">🟡 !3 Средний</span>
+        <span class="pri pri-4">🟢 !4 Низкий</span>
+      </div>
+      <p style="color:var(--muted);font-size:12px;margin-top:10px">Примеры: <code style="background:rgba(255,255,255,0.07);padding:2px 6px;border-radius:4px">отчёт завтра !1</code> · <code style="background:rgba(255,255,255,0.07);padding:2px 6px;border-radius:4px">купить продукты !4</code></p>
+    </div>
+
+    <div class="two-col">
+      <div class="feature-block" style="margin:0">
+        <h3>🔧 Кнопки на задаче</h3>
+        <ul>
+          <li><strong>✅</strong> — отметить выполненной</li>
+          <li><strong>⏰</strong> — поставить напоминание</li>
+          <li><strong>📅</strong> — перенести дату</li>
+          <li><strong>🏷</strong> — сменить приоритет</li>
+          <li><strong>📁</strong> — выбрать категорию</li>
+          <li><strong>🗑</strong> — удалить задачу</li>
+        </ul>
+      </div>
+      <div class="feature-block" style="margin:0">
+        <h3>📁 Категории</h3>
+        <ul>
+          <li>💼 Работа</li>
+          <li>🏠 Личное</li>
+          <li>💪 Здоровье</li>
+          <li>📚 Учёба</li>
+          <li>🛒 Покупки</li>
+          <li>+ свои категории через /addcat</li>
+        </ul>
+      </div>
+    </div>
+  </section>
+
+  <!-- REMINDERS -->
+  <section class="section" id="reminders">
+    <div class="section-header">
+      <div class="section-icon">⏰</div>
+      <div>
+        <h2>Система напоминаний</h2>
+        <p>Никогда не забудешь о важном</p>
+      </div>
+    </div>
+
+    <div class="cards">
+      <div class="card">
+        <div class="card-icon">🤖</div>
+        <h3>Автоматические</h3>
+        <p>За 15 минут до задачи с указанным временем. Работает только если задача ещё не выполнена.</p>
+      </div>
+      <div class="card">
+        <div class="card-icon">⏰</div>
+        <h3>Ручные</h3>
+        <p>Кнопка ⏰ на задаче: через 5м / 15м / 30м / 1ч / 3ч. Или попроси AI: «Напомни через 2 часа».</p>
+      </div>
+      <div class="card">
+        <div class="card-icon">😴</div>
+        <h3>Snooze</h3>
+        <p>Кнопка «Отложить» при напоминании — откладывает на 30 минут.</p>
+      </div>
+      <div class="card">
+        <div class="card-icon">🌅</div>
+        <h3>Утренний дайджест</h3>
+        <p>Каждое утро — сводка задач на день. Включает личные и командные задачи. Время настраивается.</p>
+      </div>
+      <div class="card">
+        <div class="card-icon">🌙</div>
+        <h3>Вечерний обзор</h3>
+        <p>Итоги дня: выполнено / не выполнено. Предлагает перенести незакрытые задачи.</p>
+      </div>
+      <div class="card">
+        <div class="card-icon">🔕</div>
+        <h3>Режим «Не беспокоить»</h3>
+        <p>Тихие часы — напоминания замолкают. По умолчанию 23:00–07:00. Настраивается в /settings.</p>
+      </div>
+    </div>
+  </section>
+
+  <!-- HABITS -->
+  <section class="section" id="habits">
+    <div class="section-header">
+      <div class="section-icon">📊</div>
+      <div>
+        <h2>Трекер привычек</h2>
+        <p>Стрики, статистика, мотивация</p>
+      </div>
+    </div>
+
+    <div class="two-col">
+      <div class="feature-block" style="margin:0">
+        <h3>📌 Как создать привычку</h3>
+        <ul>
+          <li>Написать: <strong>«Добавь привычку: зарядка»</strong></li>
+          <li>Команда <strong>/addhabit зарядка</strong></li>
+          <li>Кнопка «Добавить» в меню /habits</li>
+          <li>Выбери эмодзи и частоту</li>
+        </ul>
+      </div>
+      <div class="feature-block" style="margin:0">
+        <h3>🔥 Стрики</h3>
+        <ul>
+          <li>Ежедневное отмечание ведёт стрик</li>
+          <li>Пропуск дня — стрик обнуляется</li>
+          <li>Рекорд сохраняется навсегда</li>
+          <li>Статистика в WebApp по дням</li>
+        </ul>
+      </div>
+    </div>
+
+    <div class="feature-block">
+      <h3>📅 Примеры привычек</h3>
+      <ul>
+        <li><strong>💪 Зарядка</strong> — 🔥 127 дней (рекорд: 214)</li>
+        <li><strong>📚 Читать 30 минут</strong> — 🔥 45 дней</li>
+        <li><strong>💧 Выпить 2л воды</strong> — 🔥 12 дней</li>
+        <li><strong>🧘 Медитация</strong> — 🔥 7 дней</li>
+      </ul>
+    </div>
+  </section>
+
+  <!-- GROUPS -->
+  <section class="section" id="groups">
+    <div class="section-header">
+      <div class="section-icon">👥</div>
+      <div>
+        <h2>Совместное планирование</h2>
+        <p>Добавь бота в группу — получи командный планировщик</p>
+      </div>
+    </div>
+
+    <div class="steps">
+      <div class="step">
+        <div class="step-num">1</div>
+        <div class="step-body">
+          <h4>Добавь бота в Telegram-группу</h4>
+          <p>Группа автоматически становится «воркспейсом» для совместных задач.</p>
+        </div>
+      </div>
+      <div class="step">
+        <div class="step-num">2</div>
+        <div class="step-body">
+          <h4>Создай задачу для команды</h4>
+          <p><code>/task Подготовить презентацию к пятнице</code> — бот создаёт задачу с кнопками управления.</p>
+        </div>
+      </div>
+      <div class="step">
+        <div class="step-num">3</div>
+        <div class="step-body">
+          <h4>Назначь или дай взять</h4>
+          <p>Участники нажимают «👤 Взять задачу» — берут на себя. Или менеджер назначает: <code>/assign @username задача</code>.</p>
+        </div>
+      </div>
+      <div class="step">
+        <div class="step-num">4</div>
+        <div class="step-body">
+          <h4>Контроль выполнения</h4>
+          <p>«📊 Отчёт» → бот пишет в личку → исполнитель пишет отчёт → бот публикует в группу.</p>
+        </div>
+      </div>
+    </div>
+
+    <div class="feature-block" style="margin-top:16px">
+      <h3>📋 Команды в группе</h3>
+      <div class="cmds">
+        <div class="cmd"><code>/task [описание]</code><span>Создать задачу для группы</span></div>
+        <div class="cmd"><code>/assign @user [задача]</code><span>Назначить задачу участнику (+ DM ему)</span></div>
+        <div class="cmd"><code>/list</code><span>Все открытые задачи группы</span></div>
+        <div class="cmd"><code>/board</code><span>Канбан: Очередь / В работе / Готово</span></div>
+        <div class="cmd"><code>/mytasks</code><span>Мои задачи в этой группе</span></div>
+        <div class="cmd"><code>/done #G[id]</code><span>Завершить групповую задачу</span></div>
+        <div class="cmd"><code>/stats</code><span>Статистика + топ исполнителей</span></div>
+        <div class="cmd"><code>/gs_settings</code><span>Настройки группы (AI-мониторинг)</span></div>
+        <div class="cmd"><code>/call</code><span>Быстрый созвон для всей группы</span></div>
+      </div>
+    </div>
+
+    <div class="tip">
+      <span class="tip-icon">🤖</span>
+      <span><strong>AI-мониторинг</strong> — если включить в /gs_settings, бот будет следить за сообщениями в группе и предлагать создать задачи из обычных сообщений.</span>
+    </div>
+  </section>
+
+  <!-- CONFERENCE -->
+  <section class="section" id="conf">
+    <div class="section-header">
+      <div class="section-icon">📹</div>
+      <div>
+        <h2>Видеоконференции <span class="badge">WebRTC</span></h2>
+        <p>Видеозвонки прямо внутри Telegram</p>
+      </div>
+    </div>
+
+    <div class="two-col">
+      <div class="steps" style="gap:12px">
+        <div class="step">
+          <div class="step-num">1</div>
+          <div class="step-body">
+            <h4>Создать комнату</h4>
+            <p><code>/meet Планёрка</code> — бот создаёт комнату и даёт кнопку входа.</p>
+          </div>
+        </div>
+        <div class="step">
+          <div class="step-num">2</div>
+          <div class="step-body">
+            <h4>Войти через WebApp</h4>
+            <p>Нажми кнопку «Войти в комнату» — откроется вкладка 📹 в планировщике.</p>
+          </div>
+        </div>
+        <div class="step">
+          <div class="step-num">3</div>
+          <div class="step-body">
+            <h4>Пригласить участников</h4>
+            <p>Поделись 8-символьным ID комнаты. В WebApp → вкладка 📹 → введи ID.</p>
+          </div>
+        </div>
+      </div>
+      <div>
+        <div class="feature-block" style="margin:0">
+          <h3>🎛 Управление в комнате</h3>
+          <div class="ctrl-row">
+            <div class="ctrl"><span class="ctrl-emoji">🎤</span> Микрофон</div>
+            <div class="ctrl"><span class="ctrl-emoji">📷</span> Камера</div>
+            <div class="ctrl"><span class="ctrl-emoji">🖥</span> Экран</div>
+            <div class="ctrl"><span class="ctrl-emoji">✋</span> Рука</div>
+            <div class="ctrl"><span class="ctrl-emoji">💬</span> Чат</div>
+            <div class="ctrl"><span class="ctrl-emoji">👥</span> Участники</div>
+            <div class="ctrl"><span class="ctrl-emoji">📵</span> Выйти</div>
+          </div>
+        </div>
+        <div class="feature-block" style="margin:12px 0 0">
+          <h3>🔒 Безопасность</h3>
+          <ul>
+            <li><strong>E2E шифрование</strong> чата — AES-256-GCM</li>
+            <li><strong>Блокировка комнаты</strong> — новые не войдут</li>
+            <li><strong>Кик участников</strong> — с запретом возврата</li>
+            <li><strong>Роли:</strong> Admin · Helper · User</li>
+            <li><strong>WebRTC</strong> — работает за NAT/VPN</li>
+          </ul>
+        </div>
+      </div>
+    </div>
+
+    <div class="feature-block" style="margin-top:16px">
+      <h3>📋 Команды конференций</h3>
+      <div class="cmds">
+        <div class="cmd"><code>/meet [название]</code><span>Создать видеокомнату (в личке или группе)</span></div>
+        <div class="cmd"><code>/rooms</code><span>Список моих активных комнат</span></div>
+        <div class="cmd"><code>/call</code><span>Быстрый созвон в группе (без названия)</span></div>
+      </div>
+    </div>
+  </section>
+
+  <!-- SETTINGS -->
+  <section class="section" id="settings">
+    <div class="section-header">
+      <div class="section-icon">⚙️</div>
+      <div>
+        <h2>Настройки</h2>
+        <p>Персонализация под твой ритм</p>
+      </div>
+    </div>
+
+    <div class="two-col">
+      <div class="feature-block" style="margin:0">
+        <h3>🤖 Секретарь</h3>
+        <ul>
+          <li><strong>/rename [имя]</strong> — сменить имя</li>
+          <li><strong>/style</strong> — сменить стиль общения</li>
+          <li>4 стиля: 😊 💼 🔥 🌸</li>
+        </ul>
+      </div>
+      <div class="feature-block" style="margin:0">
+        <h3>🌍 Часовой пояс</h3>
+        <ul>
+          <li><strong>/timezone Europe/Moscow</strong></li>
+          <li><strong>/timezone Asia/Almaty</strong></li>
+          <li><strong>/timezone US/Eastern</strong></li>
+          <li>Влияет на все даты и напоминания</li>
+        </ul>
+      </div>
+      <div class="feature-block" style="margin:0">
+        <h3>🕐 Дайджесты</h3>
+        <ul>
+          <li>Утренний план — настраивай время</li>
+          <li>Вечерний обзор — настраивай время</li>
+          <li>По умолчанию: 08:00 и 21:00</li>
+        </ul>
+      </div>
+      <div class="feature-block" style="margin:0">
+        <h3>🔕 Не беспокоить</h3>
+        <ul>
+          <li>Диапазон тихих часов</li>
+          <li>По умолчанию: 23:00 – 07:00</li>
+          <li>Настройка через /settings</li>
+        </ul>
+      </div>
+    </div>
+  </section>
+
+  <!-- COMMANDS -->
+  <section class="section" id="commands">
+    <div class="section-header">
+      <div class="section-icon">📜</div>
+      <div>
+        <h2>Все команды</h2>
+        <p>Полный справочник</p>
+      </div>
+    </div>
+
+    <div class="feature-block">
+      <h3>📋 Задачи</h3>
+      <div class="cmds">
+        <div class="cmd"><code>/today</code><span>Задачи на сегодня</span></div>
+        <div class="cmd"><code>/tomorrow</code><span>Задачи на завтра</span></div>
+        <div class="cmd"><code>/week</code><span>Задачи на ближайшие 7 дней</span></div>
+        <div class="cmd"><code>/all</code><span>Все активные задачи</span></div>
+        <div class="cmd"><code>/done</code><span>Завершённые задачи</span></div>
+        <div class="cmd"><code>/overdue</code><span>Просроченные задачи</span></div>
+      </div>
+    </div>
+
+    <div class="feature-block">
+      <h3>🧠 AI и голос</h3>
+      <div class="cmds">
+        <div class="cmd"><code>/ai [вопрос]</code><span>Прямой запрос к AI-секретарю</span></div>
+        <div class="cmd"><code>/plan</code><span>Получить AI-план на сегодня</span></div>
+        <div class="cmd"><code>/breakdown [задача]</code><span>Разбить задачу на подзадачи</span></div>
+        <div class="cmd"><code>/advice</code><span>Совет по продуктивности</span></div>
+      </div>
+    </div>
+
+    <div class="feature-block">
+      <h3>📊 Привычки и категории</h3>
+      <div class="cmds">
+        <div class="cmd"><code>/habits</code><span>Список привычек + отметить</span></div>
+        <div class="cmd"><code>/addhabit [текст]</code><span>Новая привычка</span></div>
+        <div class="cmd"><code>/categories</code><span>Список категорий</span></div>
+        <div class="cmd"><code>/addcat [название]</code><span>Новая категория</span></div>
+      </div>
+    </div>
+
+    <div class="feature-block">
+      <h3>⚙️ Настройки</h3>
+      <div class="cmds">
+        <div class="cmd"><code>/settings</code><span>Открыть настройки</span></div>
+        <div class="cmd"><code>/timezone [зона]</code><span>Сменить часовой пояс</span></div>
+        <div class="cmd"><code>/rename [имя]</code><span>Сменить имя секретаря</span></div>
+        <div class="cmd"><code>/style</code><span>Сменить стиль общения</span></div>
+      </div>
+    </div>
+
+    <div class="feature-block">
+      <h3>👥 Групповые (в чате)</h3>
+      <div class="cmds">
+        <div class="cmd"><code>/task [описание]</code><span>Создать задачу группы</span></div>
+        <div class="cmd"><code>/assign @user [задача]</code><span>Назначить участнику</span></div>
+        <div class="cmd"><code>/list</code><span>Все задачи группы</span></div>
+        <div class="cmd"><code>/board</code><span>Канбан-доска</span></div>
+        <div class="cmd"><code>/mytasks</code><span>Мои задачи в группе</span></div>
+        <div class="cmd"><code>/done #G[id]</code><span>Завершить групповую задачу</span></div>
+        <div class="cmd"><code>/stats</code><span>Статистика группы</span></div>
+        <div class="cmd"><code>/gs_settings</code><span>Настройки AI-мониторинга</span></div>
+        <div class="cmd"><code>/call</code><span>Быстрый созвон</span></div>
+      </div>
+    </div>
+
+    <div class="feature-block">
+      <h3>📹 Конференции</h3>
+      <div class="cmds">
+        <div class="cmd"><code>/meet [название]</code><span>Создать видеокомнату</span></div>
+        <div class="cmd"><code>/rooms</code><span>Мои комнаты</span></div>
+        <div class="cmd"><code>/call</code><span>Быстрый созвон (в группе)</span></div>
+      </div>
+    </div>
+
+    <div class="feature-block">
+      <h3>ℹ️ Справка</h3>
+      <div class="cmds">
+        <div class="cmd"><code>/help</code><span>Список всех команд</span></div>
+        <div class="cmd"><code>/features</code><span>Возможности бота по разделам</span></div>
+        <div class="cmd"><code>/guide</code><span>Инструкции и руководство</span></div>
+        <div class="cmd"><code>/start</code><span>Главное меню / перезапуск</span></div>
+      </div>
+    </div>
+  </section>
+
+</div>
+
+<footer>
+  <p>Alpha Planner — AI-секретарь для Telegram</p>
+  <p style="margin-top:6px">Groq AI · WebRTC · SQLite · grammY</p>
+</footer>
+
+</body>
+</html>

@@ -177,28 +177,47 @@ async function handleVoice(ctx, fileId, groqKey, tmpDir) {
 
     // Добавляем инфо о действиях
     if (actions.length > 0) {
-      reply += '\n';
+      const actionLines = [];
       for (const a of actions) {
-        if (a.type === 'created') reply += `\n✅ <b>${escapeHtml(a.task.title)}</b> 📅${formatDateRu(a.task.due_date)}${a.task.due_time ? ' ⏰' + a.task.due_time : ''} [#${a.task.id}]`;
-        if (a.type === 'done') reply += `\n✅ Завершено: ${escapeHtml(a.task.title)}`;
-        if (a.type === 'moved') reply += `\n📅 Перенесено: ${escapeHtml(a.task.title)} → ${formatDateRu(a.date)}`;
-        if (a.type === 'deleted') reply += `\n🗑 Удалено: ${escapeHtml(a.task.title)}`;
-        if (a.type === 'habit') reply += `\n📊 Привычка: ${a.habit.emoji} ${escapeHtml(a.habit.title)}`;
+        if (a.type === 'created') actionLines.push(`✅ <b>${escapeHtml(a.task.title)}</b> 📅${formatDateRu(a.task.due_date)}${a.task.due_time ? ' ⏰' + a.task.due_time : ''}`);
+        if (a.type === 'done') actionLines.push(`✅ Готово: ${escapeHtml(a.task.title)}`);
+        if (a.type === 'moved') actionLines.push(`📅 Перенесено: ${escapeHtml(a.task.title)} → ${formatDateRu(a.date)}`);
+        if (a.type === 'deleted') actionLines.push(`🗑 Удалено: ${escapeHtml(a.task.title)}`);
+        if (a.type === 'habit') actionLines.push(`📊 Привычка: ${a.habit.emoji} ${escapeHtml(a.habit.title)}`);
+        if (a.type === 'habit_done') actionLines.push(`✅ ${a.habit.emoji} ${escapeHtml(a.habit.title)} — отмечено!`);
       }
+      if (actionLines.length > 0) reply += '\n\n' + actionLines.join('\n');
     }
 
-    // Кнопки для созданных задач
+    // Строим inline кнопки
     const kb = new InlineKeyboard();
     const createdTasks = actions.filter(a => a.type === 'created');
-    if (createdTasks.length === 1) {
-      const t = createdTasks[0].task;
-      kb.text('✅', `done_${t.id}`).text('⏰', `task_remind_${t.id}`)
-        .text('📅', `task_reschedule_${t.id}`).text('🗑', `task_delete_${t.id}`);
+    const showAction = actions.find(a => a.type === 'show_tasks');
+    const showHabitsAct = actions.find(a => a.type === 'show_habits');
+    const showStatsAct = actions.find(a => a.type === 'show_stats');
+
+    // Кнопки на каждую созданную задачу
+    createdTasks.forEach(({ task: t }) => {
+      const short = t.title.length > 20 ? t.title.slice(0, 20) + '…' : t.title;
+      kb.text(`✅ ${short}`, `done_${t.id}`)
+        .text('⏰', `task_remind_${t.id}`)
+        .text('📅', `task_reschedule_${t.id}`)
+        .text('🗑', `task_delete_${t.id}`).row();
+    });
+
+    if (showAction) {
+      const modeLabels = { today: '📋 Сегодня', tomorrow: '📅 Завтра', week: '📆 Неделя', all: '📋 Все', overdue: '⚠️ Просроченные' };
+      kb.text(modeLabels[showAction.mode] || '📋 Задачи', `show_${showAction.mode}`).row();
     }
+    if (showHabitsAct) kb.text('📊 Привычки', 'habits').row();
+    if (showStatsAct) kb.text('☀️ Итог дня', 'stats_today').row();
+
+    // Навигационные кнопки — всегда
+    if (!showAction) kb.text('📋 Сегодня', 'today').text('📅 Завтра', 'show_tomorrow');
 
     await ctx.api.editMessageText(ctx.chat.id, thinkingMsg.message_id, reply, {
       parse_mode: 'HTML',
-      reply_markup: kb.inline_keyboard.length ? kb : undefined,
+      reply_markup: kb.inline_keyboard.flat().length ? kb : undefined,
     });
 
   } catch (e) {

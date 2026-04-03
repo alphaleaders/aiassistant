@@ -1,12 +1,53 @@
 const express = require('express');
+const http = require('http');
+const { Server: SocketIO } = require('socket.io');
 const path = require('path');
 const crypto = require('crypto');
 const db = require('../db/database');
+const { initSignaling } = require('../conference/signaling');
 
 function createServer(botToken) {
   const app = express();
+  const httpServer = http.createServer(app);
+  const io = new SocketIO(httpServer, {
+    cors: { origin: '*', methods: ['GET', 'POST'] },
+    transports: ['websocket', 'polling'],
+  });
+
+  initSignaling(io, db);
+
   app.use(express.json());
-  app.use(express.static(path.join(__dirname, 'public')));
+  // Convert webm to mp4
+  const multer = require('multer');
+  const { execSync, exec } = require('child_process');
+  const os = require('os');
+  const uploadConf = multer({ dest: os.tmpdir(), limits: { fileSize: 200 * 1024 * 1024 } }); // 200MB max
+
+  app.post('/api/convert-to-mp4', uploadConf.single('file'), async (req, res) => {
+    if (!req.file) return res.status(400).json({ error: 'No file' });
+    const input = req.file.path;
+    const output = input + '.mp4';
+    try {
+      execSync('ffmpeg -i ' + input + ' -c:v libx264 -preset fast -crf 23 -c:a aac -b:a 128k -movflags +faststart -y ' + output, { timeout: 120000 });
+      res.download(output, req.body.filename || 'conference.mp4', function() {
+        try { fs.unlinkSync(input); fs.unlinkSync(output); } catch(e) {}
+      });
+    } catch(e) {
+      console.error('FFmpeg error:', e.message);
+      // Fallback: return original webm
+      res.download(input, (req.body.filename || 'conference').replace('.mp4', '.webm'), function() {
+        try { fs.unlinkSync(input); } catch(e) {}
+      });
+    }
+  });
+
+  // Browser conference — serve join.html when ?conf= is present
+  app.get('/', (req, res, next) => {
+    if (req.query.conf) return res.sendFile(path.join(__dirname, 'public', 'join.html'));
+    next();
+  });
+
+  app.use(express.static(path.join(__dirname, 'public'), { etag: false, setHeaders: (res, fp) => { if (fp.endsWith('.html')) res.setHeader('Cache-Control', 'no-cache, no-store, must-revalidate'); } }));
 
   // ============ Telegram WebApp Auth ============
   function validateTelegramWebApp(initData) {
@@ -185,12 +226,70 @@ function createServer(botToken) {
     }
   });
 
-  // Главная страница
+  // ============ Conference API ============
+
+  // GET /api/conf/rooms — мои комнаты
+  app.get('/api/conf/rooms', authMiddleware, (req, res) => {
+    try {
+      const rooms = db.getUserConfRooms(req.user.id);
+      res.json({ rooms });
+    } catch (e) {
+      res.status(500).json({ error: 'DB_ERROR' });
+    }
+  });
+
+  // POST /api/conf/rooms — создать комнату
+  app.post('/api/conf/rooms', authMiddleware, (req, res) => {
+    try {
+      const { name, workspace_id } = req.body;
+      if (!name?.trim()) return res.status(400).json({ error: 'EMPTY_NAME' });
+      const room = db.createConfRoom(name.trim(), req.user.id, workspace_id || null);
+      res.json({ room });
+    } catch (e) {
+      res.status(500).json({ error: 'DB_ERROR' });
+    }
+  });
+
+  // GET /api/conf/rooms/:id — инфо о комнате
+  app.get('/api/conf/rooms/:id', authMiddleware, (req, res) => {
+    try {
+      const room = db.getConfRoom(req.params.id);
+      if (!room) return res.status(404).json({ error: 'NOT_FOUND' });
+      const messages = db.getConfMessages(room.id, 50);
+      res.json({ room, messages });
+    } catch (e) {
+      res.status(500).json({ error: 'DB_ERROR' });
+    }
+  });
+
+  // DELETE /api/conf/rooms/:id — закрыть комнату
+  app.delete('/api/conf/rooms/:id', authMiddleware, (req, res) => {
+    try {
+      const room = db.getConfRoom(req.params.id);
+      if (!room || room.created_by !== req.user.id) return res.status(403).json({ error: 'FORBIDDEN' });
+      db.deactivateConfRoom(room.id);
+      res.json({ ok: true });
+    } catch (e) {
+      res.status(500).json({ error: 'DB_ERROR' });
+    }
+  });
+
+  // Страница руководства (публичная, без авторизации)
+  app.get('/guide', (req, res) => {
+    res.sendFile(path.join(__dirname, 'public', 'guide.html'));
+  });
+
+  // Браузерная конференция — отдельная страница
   app.get('/', (req, res) => {
+    if (req.query.conf) {
+      return res.sendFile(path.join(__dirname, 'public', 'join.html'));
+    }
     res.sendFile(path.join(__dirname, 'public', 'index.html'));
   });
 
-  return app;
+  // Возвращаем httpServer (не app) — нужен для Socket.IO
+  httpServer._app = app;
+  return httpServer;
 }
 
 module.exports = { createServer };
