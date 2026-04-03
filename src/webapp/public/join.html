@@ -846,6 +846,7 @@
       };
       document.getElementById('btnLeave').onclick = function() {
         intentionalLeave = true;
+        stopAudioHealthMonitor();
         if (socket) socket.disconnect();
         stopLocalAudio(); stopTimer(); cleanupAudioProcessing(); stopMutedDetection(); stopAdaptiveBitrate(); stopRecording();
         try { confManager.localStream?.getTracks().forEach(function(t){t.stop()}); } catch(e){}
@@ -1902,6 +1903,119 @@
     // Show tips on first join
     function maybeShowTips() { if (!localStorage.getItem('conf_tips_seen')) showTips(); }
 
+    // ══════ Audio Health Monitor + Auto Recovery ══════
+    var audioHealthInterval = null;
+    var lastAudioCheck = 0;
+
+    function startAudioHealthMonitor() {
+      if (audioHealthInterval) return;
+      audioHealthInterval = setInterval(function() {
+        if (!confManager || !confManager.localStream) return;
+
+        // 1. Check if local audio track is alive
+        var audioTrack = confManager.localStream.getAudioTracks()[0];
+        if (audioTrack && confManager.audioEnabled) {
+          if (audioTrack.readyState === 'ended' || !audioTrack.enabled) {
+            console.warn('[HEALTH] Local audio track dead, recovering...');
+            recoverLocalAudio();
+            return;
+          }
+          // Check if track is muted by system (no data flowing)
+          if (audioTrack.muted && confManager.audioEnabled) {
+            console.warn('[HEALTH] Audio track muted by system');
+            toast('⚠️ Микрофон заблокирован системой. Восстанавливаю...');
+            recoverLocalAudio();
+            return;
+          }
+        }
+
+        // 2. Check peer connections health
+        if (confManager.peers) {
+          confManager.peers.forEach(function(peer, sid) {
+            if (!peer.pc) return;
+            var state = peer.pc.connectionState || peer.pc.iceConnectionState;
+            if (state === 'disconnected' || state === 'failed') {
+              console.warn('[HEALTH] Peer', sid, 'state:', state, '— attempting ICE restart');
+              try {
+                // ICE restart
+                peer.pc.restartIce();
+                toast('🔄 Восстанавливаю соединение...');
+              } catch(e) {
+                console.error('[HEALTH] ICE restart failed:', e);
+              }
+            }
+          });
+        }
+
+        // 3. Check AudioContext state (can be suspended by browser)
+        if (typeof localAudioCtx !== 'undefined' && localAudioCtx && localAudioCtx.state === 'suspended') {
+          console.warn('[HEALTH] AudioContext suspended, resuming...');
+          localAudioCtx.resume().catch(function(){});
+        }
+
+        // 4. Check peer audio contexts
+        Object.keys(peerVolumes).forEach(function(sid) {
+          var pv = peerVolumes[sid];
+          if (pv && pv.ctx && pv.ctx.state === 'suspended') {
+            pv.ctx.resume().catch(function(){});
+          }
+        });
+
+      }, 5000); // Check every 5 seconds
+    }
+
+    function stopAudioHealthMonitor() {
+      if (audioHealthInterval) clearInterval(audioHealthInterval);
+      audioHealthInterval = null;
+    }
+
+    async function recoverLocalAudio() {
+      try {
+        // Get new audio stream
+        var micId = localStorage.getItem('conf_mic_id');
+        var newStream = await navigator.mediaDevices.getUserMedia({
+          audio: { deviceId: micId ? {ideal:micId} : undefined, echoCancellation:true, noiseSuppression:true, autoGainControl:true }
+        });
+        var newTrack = newStream.getAudioTracks()[0];
+        if (!newTrack) return;
+
+        // Replace in local stream
+        var oldTrack = confManager.localStream.getAudioTracks()[0];
+        if (oldTrack) {
+          confManager.localStream.removeTrack(oldTrack);
+          oldTrack.stop();
+        }
+        confManager.localStream.addTrack(newTrack);
+        confManager.audioEnabled = true;
+
+        // Replace in all peer connections
+        if (confManager.peers) {
+          confManager.peers.forEach(function(peer) {
+            if (!peer.pc) return;
+            var sender = peer.pc.getSenders().find(function(s) { return s.track && s.track.kind === 'audio'; });
+            if (sender) {
+              sender.replaceTrack(newTrack).catch(function(e) { console.error('[HEALTH] replaceTrack failed:', e); });
+            }
+          });
+        }
+
+        // Update UI
+        document.getElementById('btnMic').classList.remove('muted');
+        document.getElementById('btnMic').classList.add('active');
+        document.getElementById('localMutedIcon').style.display = 'none';
+
+        // Restart audio monitoring
+        stopLocalAudio();
+        startLocalAudio();
+
+        toast('✅ Микрофон восстановлен');
+        console.log('[HEALTH] Audio recovered successfully');
+      } catch(e) {
+        console.error('[HEALTH] Audio recovery failed:', e);
+        toast('❌ Не удалось восстановить микрофон. Перезагрузите страницу.');
+      }
+    }
+
     // ══════ Self-view (Telegram PiP) ══════
     function updateSelfView() {
       var sv = document.getElementById('selfView');
@@ -1985,6 +2099,26 @@
       if (view) { view.style.display = 'none'; view.classList.add('hidden'); }
       document.querySelector('.conf-main')?.classList.remove('screen-share-active');
     });
+
+    // ══════ Resume AudioContext on user interaction ══════
+    // Browsers suspend AudioContext until user interacts
+    var audioResumed = false;
+    function resumeAllAudio() {
+      if (audioResumed) return;
+      audioResumed = true;
+      if (typeof localAudioCtx !== 'undefined' && localAudioCtx) localAudioCtx.resume().catch(function(){});
+      if (typeof audioProcessingCtx !== 'undefined' && audioProcessingCtx) audioProcessingCtx.resume().catch(function(){});
+      Object.keys(peerVolumes).forEach(function(sid) {
+        if (peerVolumes[sid] && peerVolumes[sid].ctx) peerVolumes[sid].ctx.resume().catch(function(){});
+      });
+      // Also unmute all remote videos
+      document.querySelectorAll('#video-grid video:not(#local-video)').forEach(function(v) {
+        if (v.muted && !v.closest('.local')) v.muted = false;
+        v.play().catch(function(){});
+      });
+    }
+    document.addEventListener('click', resumeAllAudio, { once: false });
+    document.addEventListener('touchstart', resumeAllAudio, { once: false });
 
     // ══════ Keyboard shortcuts ══════
     document.addEventListener('keydown', function(e) {
