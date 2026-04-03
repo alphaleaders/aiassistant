@@ -123,7 +123,9 @@ function createBot(token, webappUrl) {
         .text('☀️ Итог дня', 'stats_today')
         .text('⚙️ Настройки', 'settings').row()
         .text('🌟 Возможности', 'features_menu')
-        .text('📖 Инструкции', 'guide_menu');
+        .text('📖 Инструкции', 'guide_menu').row()
+        .text('🤖 AI Инструменты', 'aitools_menu').text('🌟 Мечты', 'dreams_menu').row()
+        .text('📋 Дела на день', 'dr_back').text('📆 Планировщик', 'planner_menu');
       if (webappUrl) inlineKb.row().webApp('📱 Открыть планировщик', webappUrl);
 
       return ctx.reply(
@@ -359,7 +361,9 @@ function createBot(token, webappUrl) {
     const inlineKb = new InlineKeyboard()
       .text('📋 Задачи сегодня', 'today').text('📊 Привычки', 'habits').row()
       .text('☀️ Итог дня', 'stats_today').text('⚙️ Настройки', 'settings').row()
-      .text('🌟 Возможности', 'features_menu').text('📖 Инструкции', 'guide_menu');
+      .text('🌟 Возможности', 'features_menu').text('📖 Инструкции', 'guide_menu').row()
+        .text('🤖 AI Инструменты', 'aitools_menu').text('🌟 Мечты', 'dreams_menu').row()
+        .text('📋 Дела на день', 'dr_back').text('📆 Планировщик', 'planner_menu');
     if (webappUrl) inlineKb.row().webApp('📱 Открыть планировщик', webappUrl);
     await ctx.reply(
       `🏠 <b>Главное меню</b>\n\nЯ ${escapeHtml(name)}, твой персональный секретарь.`,
@@ -1864,7 +1868,9 @@ function createBot(token, webappUrl) {
       const inlineKb = new InlineKeyboard()
         .text('📋 Задачи сегодня', 'today').text('📊 Привычки', 'habits').row()
         .text('☀️ Итог дня', 'stats_today').text('⚙️ Настройки', 'settings').row()
-        .text('🌟 Возможности', 'features_menu').text('📖 Инструкции', 'guide_menu');
+        .text('🌟 Возможности', 'features_menu').text('📖 Инструкции', 'guide_menu').row()
+        .text('🤖 AI Инструменты', 'aitools_menu').text('🌟 Мечты', 'dreams_menu').row()
+        .text('📋 Дела на день', 'dr_back').text('📆 Планировщик', 'planner_menu');
       if (webappUrl) inlineKb.row().webApp('📱 Открыть планировщик', webappUrl);
       return ctx.reply(
         `🏠 <b>Главное меню</b>\n\nЯ ${escapeHtml(name)}, твой персональный секретарь.\n\nПросто напиши мне что нужно сделать!`,
