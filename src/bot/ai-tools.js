@@ -216,14 +216,34 @@ function setupAIToolsHandlers(bot) {
       const encoded = encodeURIComponent(prompt);
       const url = `https://image.pollinations.ai/prompt/${encoded}?width=1024&height=1024&nologo=true&seed=${Date.now()}`;
 
-      // Pollinations returns the image directly at the URL; we can send it as a URL
-      await ctx.replyWithPhoto(url, {
+      // Download image first, then send (Telegram URL fetch can timeout)
+      const https = require('https');
+      const tmpPath = '/tmp/img_' + ctx.from.id + '_' + Date.now() + '.jpg';
+      await new Promise((resolve, reject) => {
+        const file = require('fs').createWriteStream(tmpPath);
+        https.get(url, { timeout: 60000 }, (res) => {
+          if (res.statusCode === 301 || res.statusCode === 302) {
+            // Follow redirect
+            https.get(res.headers.location, { timeout: 60000 }, (res2) => {
+              res2.pipe(file);
+              file.on('finish', () => { file.close(); resolve(); });
+            }).on('error', reject);
+          } else {
+            res.pipe(file);
+            file.on('finish', () => { file.close(); resolve(); });
+          }
+        }).on('error', reject);
+      });
+
+      const { InputFile } = require('grammy');
+      await ctx.replyWithPhoto(new InputFile(tmpPath), {
         caption: `🎨 <b>Prompt:</b> ${prompt.substring(0, 800)}`,
         parse_mode: 'HTML',
         reply_markup: backKb(),
       });
+      try { require('fs').unlinkSync(tmpPath); } catch {}
     } catch (err) {
-      console.error('[ai-tools] imagine error:', err.message);
+      console.error('[ai-tools] imagine error:', err.message, err.stack);
       await ctx.reply('❌ Ошибка при генерации изображения. Попробуйте другой промпт.', { reply_markup: backKb() });
     }
 
