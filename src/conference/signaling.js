@@ -381,6 +381,9 @@ function initSignaling(io, db) {
       io.to(roomId).emit('role_changed', { socketId: targetSocketId, userId: targetData.tgId, firstName: targetData.firstName, role });
     });
 
+    // --- Keepalive ping (prevents timeout in background tabs) ---
+    socket.on('ping_keepalive', () => {});
+
     // --- Leave ---
     socket.on('leave_room', ({ roomId }) => {
       handleLeaveRoom(socket, roomId, db, io);

@@ -2100,6 +2100,86 @@
       document.querySelector('.conf-main')?.classList.remove('screen-share-active');
     });
 
+    // ══════ Background/Focus Protection ══════
+    // Keep connection alive when tab is in background
+    var keepAliveInterval = null;
+    var wasInBackground = false;
+
+    document.addEventListener('visibilitychange', function() {
+      if (document.hidden) {
+        // Going to background
+        wasInBackground = true;
+        console.log('[BG] Tab hidden — starting keepalive');
+
+        // Keep WebSocket alive with periodic pings
+        keepAliveInterval = setInterval(function() {
+          if (socket && socket.connected) {
+            socket.emit('ping_keepalive', { roomId: roomId });
+          }
+        }, 10000); // Every 10 sec
+
+      } else {
+        // Coming back to foreground
+        console.log('[BG] Tab visible — recovering');
+        if (keepAliveInterval) { clearInterval(keepAliveInterval); keepAliveInterval = null; }
+
+        if (wasInBackground) {
+          wasInBackground = false;
+
+          // 1. Resume all AudioContexts
+          if (typeof localAudioCtx !== 'undefined' && localAudioCtx) localAudioCtx.resume().catch(function(){});
+          if (typeof audioProcessingCtx !== 'undefined' && audioProcessingCtx) audioProcessingCtx.resume().catch(function(){});
+          Object.keys(peerVolumes).forEach(function(sid) {
+            if (peerVolumes[sid] && peerVolumes[sid].ctx) peerVolumes[sid].ctx.resume().catch(function(){});
+          });
+
+          // 2. Check socket
+          if (socket && !socket.connected) {
+            console.log('[BG] Socket disconnected, reconnecting...');
+            setConn('connecting');
+            socket.connect();
+          }
+
+          // 3. Check audio track
+          setTimeout(function() {
+            if (!confManager || !confManager.localStream) return;
+            var audioTrack = confManager.localStream.getAudioTracks()[0];
+            if (audioTrack && (audioTrack.readyState === 'ended' || audioTrack.muted)) {
+              console.log('[BG] Audio track dead after background, recovering...');
+              recoverLocalAudio();
+            }
+
+            // 4. Unmute remote videos (autoplay policy after refocus)
+            document.querySelectorAll('#video-grid video:not(#local-video)').forEach(function(v) {
+              v.play().catch(function(){});
+            });
+
+            // 5. Check peer connections
+            if (confManager.peers) {
+              confManager.peers.forEach(function(peer, sid) {
+                if (!peer.pc) return;
+                var state = peer.pc.connectionState || peer.pc.iceConnectionState;
+                if (state === 'disconnected' || state === 'failed') {
+                  console.log('[BG] Peer', sid, 'disconnected, restarting ICE...');
+                  try { peer.pc.restartIce(); } catch(e) {}
+                  toast('🔄 Восстанавливаю соединение...');
+                }
+              });
+            }
+
+            updateSelfView();
+          }, 500);
+        }
+      }
+    });
+
+    // Prevent socket timeout in background — also use Web Locks API if available
+    if (navigator.locks) {
+      navigator.locks.request('conf_keepalive', { mode: 'shared' }, function() {
+        return new Promise(function() {}); // Hold lock forever (keeps service worker alive)
+      });
+    }
+
     // ══════ Resume AudioContext on user interaction ══════
     // Browsers suspend AudioContext until user interacts
     var audioResumed = false;
