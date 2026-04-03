@@ -1633,6 +1633,21 @@ function createBot(token, webappUrl) {
     await ctx.answerCallbackQuery('Вы отказались от участия');
   });
 
+  // Planner
+  const plannerHandlers = setupPlannerHandlers(bot);
+
+  // AI Tools
+  const aiToolsHandlers = setupAIToolsHandlers(bot);
+
+  // Dreams
+  const groqKeyForDreams = process.env.GROQ_KEY;
+  const dreamHandlers = setupDreamHandlers(bot, groqKeyForDreams);
+  setupDreamDateCallbacks(bot);
+
+  // Admin panel
+  const adminHandlers = setupAdminPanel(bot);
+  setupBroadcastSend(bot);
+
   // ============ GROUP: inline кнопка "Созвать звонок" ============
   bot.callbackQuery('group_call', async (ctx) => {
     await ctx.answerCallbackQuery();
@@ -2067,20 +2082,7 @@ function createBot(token, webappUrl) {
     await ctx.reply(response, { parse_mode: 'HTML', reply_markup: kb });
   }
 
-  // Planner
-  const plannerHandlers = setupPlannerHandlers(bot);
-
-  // AI Tools
-  const aiToolsHandlers = setupAIToolsHandlers(bot);
-
-  // Dreams
-  const groqKeyForDreams = process.env.GROQ_KEY;
-  const dreamHandlers = setupDreamHandlers(bot, groqKeyForDreams);
-  setupDreamDateCallbacks(bot);
-
-  // Admin panel
-  const adminHandlers = setupAdminPanel(bot);
-  setupBroadcastSend(bot);
+  // [handlers moved up]
 
   // AI Tools photo handler
   bot.on('message:photo', async (ctx) => {

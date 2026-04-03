@@ -196,6 +196,7 @@ function getSystemPrompt(user) {
 [SHOW_STATS] [/SHOW_STATS]
 [MEMORY] тип:содержание [/MEMORY]
 [CONF_CREATE] название конференции [/CONF_CREATE]
+[IMAGE_GEN] подробное описание картинки на английском [/IMAGE_GEN]
 
 ПРАВИЛА:
 - ВСЕГДА отвечай текстом пользователю + команды если нужны действия
@@ -210,7 +211,7 @@ function getSystemPrompt(user) {
 - Если отмечает привычку ("зарядку сделал", "выполнил пробежку") — [HABIT_DONE] название [/HABIT_DONE]
 - Если просит создать конференцию/созвон/звонок/встречу/видеозвонок — ОБЯЗАТЕЛЬНО используй [CONF_CREATE] название [/CONF_CREATE]. У нас СВОЯ встроенная система видеоконференций! НИКОГДА не предлагай Google Meet, Zoom, Skype или другие внешние сервисы. Всегда создавай через [CONF_CREATE].
 - Запоминай важное через [MEMORY] (предпочтения:..., факт:..., привычка:...)
-- Если просят нарисовать/сгенерировать картинку — скажи: "Используй /aitools → Генерация изображений"
+- Если просят нарисовать/сгенерировать картинку — используй [IMAGE_GEN] детальный промт на английском [/IMAGE_GEN]. Переведи описание на английский для лучшего результата.
 - Если просят озвучить текст — скажи: "Используй /aitools → Озвучка текста"
 - Если просят поставить цель/мечту — скажи: "Используй /dreams"
 - Если просят составить план на период — скажи: "Используй /planner"
@@ -344,6 +345,12 @@ function parseAndExecuteCommands(response, user) {
     results.push({ type: 'conf_create', title });
   }
 
+  // IMAGE_GEN
+  const imageGens = [...response.matchAll(/\[IMAGE_GEN\]\s*(.+?)\s*\[\/IMAGE_GEN\]/g)];
+  for (const m of imageGens) {
+    results.push({ type: 'image_gen', prompt: m[1].trim() });
+  }
+
   // Fallback: AI gave Google/Zoom link instead of [CONF_CREATE] — auto-create conf
   if (confCreates.length === 0 && /meet\.google\.com|zoom\.us|skype\.com/i.test(response)) {
     results.push({ type: 'conf_create', title: 'Конференция' });
@@ -364,6 +371,7 @@ function parseAndExecuteCommands(response, user) {
     .replace(/\[SHOW_STATS\][^\[]*/g, '')
     .replace(/\[MEMORY\][\s\S]*?\[\/MEMORY\]/g, '')
     .replace(/\[CONF_CREATE\][\s\S]*?\[\/CONF_CREATE\]/g, '')
+    .replace(/\[IMAGE_GEN\][\s\S]*?\[\/IMAGE_GEN\]/g, '')
     // Убираем символы которые Groq иногда генерирует вместо форматирования
     .replace(/[◆◇▲▼►◄●○■□▪▫◉◎◈◊✦✧⬥⬦⬧⬨◼◻◾◽▸▹▶▷]/g, '')
     // Убираем markdown разметку если AI всё равно её добавил
@@ -449,6 +457,28 @@ function setupConversationalAI(bot, groqKey) {
           if (a.type === 'deleted') actionLines.push(`🗑 Удалено: ${escapeHtml(a.task.title)}`);
           if (a.type === 'habit') actionLines.push(`📊 Привычка создана: ${a.habit.emoji} ${escapeHtml(a.habit.title)}`);
           if (a.type === 'habit_done') actionLines.push(`✅ ${a.habit.emoji} ${escapeHtml(a.habit.title)} — отмечено!`);
+          if (a.type === 'image_gen') {
+            try {
+              const https = require('https');
+              const encoded = encodeURIComponent(a.prompt);
+              const imgUrl = 'https://image.pollinations.ai/prompt/' + encoded + '?width=1024&height=1024&nologo=true&seed=' + Date.now();
+              const tmpPath = '/tmp/aigen_' + Date.now() + '.jpg';
+              await new Promise((resolve, reject) => {
+                const fetchUrl = (u) => {
+                  https.get(u, { timeout: 60000 }, (res) => {
+                    if (res.statusCode >= 300 && res.statusCode < 400 && res.headers.location) return fetchUrl(res.headers.location);
+                    const file = require('fs').createWriteStream(tmpPath);
+                    res.pipe(file);
+                    file.on('finish', () => { file.close(); resolve(); });
+                  }).on('error', reject);
+                };
+                fetchUrl(imgUrl);
+              });
+              actionLines.push('🎨 Картинка сгенерирована');
+              // Will be sent separately after reply
+              a.tmpPath = tmpPath;
+            } catch(e) { actionLines.push('❌ Не удалось сгенерировать картинку'); }
+          }
           if (a.type === 'conf_create') {
             try {
               const room = db.createConfRoom(a.title, user.id, null);
@@ -494,6 +524,16 @@ function setupConversationalAI(bot, groqKey) {
 
       // Навигационные кнопки после ответа (всегда)
       if (!showAction) kb.text('📋 Сегодня', 'today').text('📅 Завтра', 'show_tomorrow');
+
+      // Send generated images
+      const imgActions = actions.filter(a => a.type === 'image_gen' && a.tmpPath);
+      for (const img of imgActions) {
+        try {
+          const { InputFile } = require('grammy');
+          await ctx.replyWithPhoto(new InputFile(img.tmpPath), { caption: '🎨 ' + img.prompt.slice(0, 200) });
+          try { require('fs').unlinkSync(img.tmpPath); } catch {}
+        } catch(e) {}
+      }
 
       await ctx.api.editMessageText(ctx.chat.id, thinkingMsg.message_id, reply, {
         parse_mode: 'HTML',
