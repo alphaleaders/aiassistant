@@ -325,6 +325,20 @@ function setupAIToolsHandlers(bot) {
       return;
     }
 
+    
+      // Validate file is actually an image
+      const fileData = require('fs').readFileSync(tmpPath);
+      if (fileData.length < 1000 || (fileData[0] !== 0xFF && fileData[0] !== 0x89)) {
+        console.log('[imagine] File is not a valid image, size:', fileData.length);
+        success = false;
+      }
+
+    if (!success) {
+      try { require('fs').unlinkSync(tmpPath); } catch {}
+      await ctx.reply('❌ Генерация временно недоступна. Попробуйте через минуту.', { reply_markup: backKb() });
+      try { await ctx.api.deleteMessage(ctx.chat.id, wait.message_id); } catch {}
+      return;
+    }
     try {
       const { InputFile } = require('grammy');
       await ctx.replyWithPhoto(new InputFile(tmpPath), {
