@@ -1828,6 +1828,30 @@ function createBot(token, webappUrl) {
     const user = db.ensureUser(ctx.from);
     const text = ctx.message.text.trim();
 
+    // AI Tools text handling
+    if (typeof aiToolsHandlers !== 'undefined' && aiToolsHandlers.handleText) {
+      const handled = await aiToolsHandlers.handleText(ctx);
+      if (handled) return;
+    }
+
+    // Dream text handling
+    if (typeof dreamHandlers !== 'undefined' && dreamHandlers.handleText) {
+      const handled = await dreamHandlers.handleText(ctx);
+      if (handled) return;
+    }
+
+    // Planner text handling
+    if (typeof plannerHandlers !== 'undefined' && plannerHandlers.handleText) {
+      const handled = await plannerHandlers.handleText(ctx);
+      if (handled) return;
+    }
+
+    // Admin broadcast
+    if (typeof adminHandlers !== 'undefined' && adminHandlers.handleBroadcastText) {
+      const handled = await adminHandlers.handleBroadcastText(ctx);
+      if (handled) return;
+    }
+
     // ── Reply keyboard кнопки ──
     if (text === t(getUserLang(ctx),'kbToday')) return showTasks(ctx, 'today');
     if (text === t(getUserLang(ctx),'kbTomorrow')) return showTasks(ctx, 'tomorrow');
