@@ -422,7 +422,7 @@ function setupAIToolsHandlers(bot) {
       const imageData = await downloadTgFile(ctx, fileId);
 
       const res = await httpPostBinary(
-        'https://api-inference.huggingface.co/models/nightmareai/Real-ESRGAN',
+        'https://router.huggingface.co/models/nightmareai/Real-ESRGAN',
         imageData,
         {
           Authorization: `Bearer ${process.env.HF_TOKEN}`,
@@ -481,7 +481,7 @@ function setupAIToolsHandlers(bot) {
       const imageData = await downloadTgFile(ctx, fileId);
 
       const res = await httpPostBinary(
-        'https://api-inference.huggingface.co/models/briaai/RMBG-2.0',
+        'https://router.huggingface.co/models/briaai/RMBG-2.0',
         imageData,
         {
           Authorization: `Bearer ${process.env.HF_TOKEN}`,
@@ -541,7 +541,7 @@ function setupAIToolsHandlers(bot) {
     try {
       // Use HuggingFace Inference API with a text-to-video model
       const res = await httpPost(
-        'https://api-inference.huggingface.co/models/ali-vilab/text-to-video-ms-1.7b',
+        'https://router.huggingface.co/models/ali-vilab/text-to-video-ms-1.7b',
         { inputs: prompt },
         {
           Authorization: `Bearer ${process.env.HF_TOKEN}`,
