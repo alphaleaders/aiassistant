@@ -244,7 +244,7 @@ function setupAIToolsHandlers(bot) {
           const https = require('https');
           const req = https.request({
             hostname: 'router.huggingface.co',
-            path: '/models/black-forest-labs/FLUX.1-schnell',
+            path: '/hf-inference/models/black-forest-labs/FLUX.1-schnell',
             method: 'POST',
             headers: {
               'Authorization': 'Bearer ' + process.env.HF_TOKEN,
