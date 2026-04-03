@@ -198,43 +198,144 @@ function setupAIToolsHandlers(bot) {
     if (!prompt) return ctx.reply('Пожалуйста, введите описание картинки.');
 
     clearStep(ctx);
-    const wait = await ctx.reply('⏳ Генерирую изображение...');
+    const wait = await ctx.reply('⏳ Генерирую изображение... (10-30 сек)');
 
+    const tmpPath = '/tmp/img_' + ctx.from.id + '_' + Date.now() + '.jpg';
+    let success = false;
+
+    // Try Pollinations first (no key needed, fast)
     try {
       const encoded = encodeURIComponent(prompt);
-      const url = `https://image.pollinations.ai/prompt/${encoded}?width=1024&height=1024&nologo=true&seed=${Date.now()}`;
+      const url = 'https://image.pollinations.ai/prompt/' + encoded + '?width=512&height=512&nologo=true&seed=' + Date.now();
+      console.log('[imagine] Trying Pollinations...');
 
-      // Download image first, then send (Telegram URL fetch can timeout)
-      const https = require('https');
-      const tmpPath = '/tmp/img_' + ctx.from.id + '_' + Date.now() + '.jpg';
       await new Promise((resolve, reject) => {
-        const file = require('fs').createWriteStream(tmpPath);
-        https.get(url, { timeout: 60000 }, (res) => {
-          if (res.statusCode === 301 || res.statusCode === 302) {
-            // Follow redirect
-            https.get(res.headers.location, { timeout: 60000 }, (res2) => {
-              res2.pipe(file);
-              file.on('finish', () => { file.close(); resolve(); });
-            }).on('error', reject);
-          } else {
-            res.pipe(file);
-            file.on('finish', () => { file.close(); resolve(); });
-          }
-        }).on('error', reject);
+        const https = require('https');
+        const follow = (u, depth) => {
+          if (depth > 3) return reject(new Error('Too many redirects'));
+          https.get(u, { timeout: 60000 }, (res) => {
+            if (res.statusCode === 429) return reject(new Error('Rate limited'));
+            if (res.statusCode >= 300 && res.statusCode < 400 && res.headers.location) return follow(res.headers.location, depth + 1);
+            if (res.statusCode !== 200) return reject(new Error('HTTP ' + res.statusCode));
+            const chunks = [];
+            res.on('data', c => chunks.push(c));
+            res.on('end', () => {
+              const buf = Buffer.concat(chunks);
+              if (buf.length < 1000) return reject(new Error('Response too small: ' + buf.length));
+              require('fs').writeFileSync(tmpPath, buf);
+              resolve();
+            });
+          }).on('error', reject);
+        };
+        follow(url, 0);
       });
-
-      const { InputFile } = require('grammy');
-      await ctx.replyWithPhoto(new InputFile(tmpPath), {
-        caption: `🎨 <b>Prompt:</b> ${prompt.substring(0, 800)}`,
-        parse_mode: 'HTML',
-        reply_markup: backKb(),
-      });
-      try { require('fs').unlinkSync(tmpPath); } catch {}
-    } catch (err) {
-      console.error('[ai-tools] imagine error:', err.message, err.stack);
-      await ctx.reply('❌ Ошибка при генерации изображения. Попробуйте другой промпт.', { reply_markup: backKb() });
+      success = true;
+      console.log('[imagine] Pollinations OK');
+    } catch(e) {
+      console.log('[imagine] Pollinations failed:', e.message);
     }
 
+    // Fallback: HuggingFace FLUX
+    if (!success && process.env.HF_TOKEN) {
+      try {
+        console.log('[imagine] Trying HuggingFace...');
+        const data = JSON.stringify({ inputs: prompt });
+        await new Promise((resolve, reject) => {
+          const https = require('https');
+          const req = https.request({
+            hostname: 'router.huggingface.co',
+            path: '/models/black-forest-labs/FLUX.1-schnell',
+            method: 'POST',
+            headers: {
+              'Authorization': 'Bearer ' + process.env.HF_TOKEN,
+              'Content-Type': 'application/json',
+              'Content-Length': Buffer.byteLength(data)
+            },
+            timeout: 120000
+          }, (res) => {
+            const chunks = [];
+            res.on('data', c => chunks.push(c));
+            res.on('end', () => {
+              const buf = Buffer.concat(chunks);
+              if (res.statusCode !== 200 || buf.length < 1000) {
+                return reject(new Error('HF HTTP ' + res.statusCode + ' size ' + buf.length));
+              }
+              require('fs').writeFileSync(tmpPath, buf);
+              resolve();
+            });
+          });
+          req.on('error', reject);
+          req.write(data);
+          req.end();
+        });
+        success = true;
+        console.log('[imagine] HuggingFace OK');
+      } catch(e) {
+        console.log('[imagine] HuggingFace failed:', e.message);
+      }
+    }
+
+    // Fallback 2: Gemini Imagen
+    if (!success && process.env.GEMINI_KEY) {
+      try {
+        console.log('[imagine] Trying Gemini Imagen...');
+        const https = require('https');
+        const gData = JSON.stringify({contents:[{role:'user',parts:[{text:'Generate an image: '+prompt}]}],generationConfig:{responseModalities:['TEXT','IMAGE']}});
+        await new Promise((resolve, reject) => {
+          const req = https.request({
+            hostname: 'generativelanguage.googleapis.com',
+            path: '/v1beta/models/gemini-2.0-flash-exp:generateContent?key=' + process.env.GEMINI_KEY,
+            method: 'POST',
+            headers: {'Content-Type':'application/json','Content-Length':Buffer.byteLength(gData)},
+            timeout: 60000
+          }, (res) => {
+            let body = '';
+            res.on('data', c => body += c);
+            res.on('end', () => {
+              try {
+                const j = JSON.parse(body);
+                const parts = j.candidates?.[0]?.content?.parts || [];
+                for (const p of parts) {
+                  if (p.inlineData && p.inlineData.data) {
+                    require('fs').writeFileSync(tmpPath, Buffer.from(p.inlineData.data, 'base64'));
+                    success = true;
+                    break;
+                  }
+                }
+                if (!success) reject(new Error('No image in response'));
+                else resolve();
+              } catch(e) { reject(e); }
+            });
+          });
+          req.on('error', reject);
+          req.write(gData);
+          req.end();
+        });
+        console.log('[imagine] Gemini OK');
+      } catch(e) {
+        console.log('[imagine] Gemini failed:', e.message);
+      }
+    }
+
+    // Fallback 3: tell user to try later
+    if (!success) {
+      try { require('fs').unlinkSync(tmpPath); } catch {}
+      await ctx.reply('❌ Генерация временно недоступна (лимит API). Попробуйте через 1-2 минуты или измените промпт.', { reply_markup: backKb() });
+      try { await ctx.api.deleteMessage(ctx.chat.id, wait.message_id); } catch {}
+      return;
+    }
+
+    try {
+      const { InputFile } = require('grammy');
+      await ctx.replyWithPhoto(new InputFile(tmpPath), {
+        caption: '🎨 ' + prompt.substring(0, 900),
+        reply_markup: backKb(),
+      });
+    } catch(e) {
+      console.error('[imagine] Send failed:', e.message);
+      await ctx.reply('❌ Ошибка отправки. Попробуйте ещё раз.', { reply_markup: backKb() });
+    }
+    try { require('fs').unlinkSync(tmpPath); } catch {}
     try { await ctx.api.deleteMessage(ctx.chat.id, wait.message_id); } catch {}
   }
 
